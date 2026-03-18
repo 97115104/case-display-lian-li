@@ -68,21 +68,8 @@ def _restart_driver():
     with _driver_lock:
         old = _driver
         _driver = None
-        if old and hasattr(old, 'device') and old.device is not None:
-            import usb.util
-            dev = old.device
-            try:
-                usb.util.release_interface(dev, 0)
-            except Exception:
-                pass
-            try:
-                usb.util.dispose_resources(dev)
-            except Exception:
-                pass
-            old.device = None
-            old.ep_out = None
-            old.ep_in = None
-            old._initialized = False
+        if old and hasattr(old, 'close'):
+            old.close()
         time.sleep(1)
         _driver = make_driver()
         return _driver

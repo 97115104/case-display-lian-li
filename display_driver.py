@@ -194,6 +194,23 @@ class UsbDisplayDriver(DisplayDriver):
         self._initialized = False
         self._setup_usb()
 
+    def close(self) -> None:
+        """Release the USB interface and clean up resources."""
+        import usb.util
+        if self.device is not None:
+            try:
+                usb.util.release_interface(self.device, 0)
+            except Exception:
+                pass
+            try:
+                usb.util.dispose_resources(self.device)
+            except Exception:
+                pass
+        self.device = None
+        self.ep_out = None
+        self.ep_in = None
+        self._initialized = False
+
     def _setup_usb(self) -> None:
         import usb.core
         import usb.util
@@ -210,6 +227,12 @@ class UsbDisplayDriver(DisplayDriver):
                         dev.detach_kernel_driver(intf.bInterfaceNumber)
                     except usb.core.USBError:
                         pass
+
+        # Release any previously claimed interface (e.g. stale session).
+        try:
+            usb.util.release_interface(dev, 0)
+        except Exception:
+            pass
 
         try:
             dev.set_configuration()
@@ -250,6 +273,23 @@ class UsbDisplayDriver(DisplayDriver):
             return
 
         self.device = dev
+
+    def _ensure_connected(self) -> bool:
+        """Check the USB session is still alive, reconnect if needed."""
+        if self.device is None:
+            return False
+        try:
+            # Lightweight probe: read device status (control transfer).
+            self.device.ctrl_transfer(0x80, 0x00, 0, 0, 2)
+            return True
+        except Exception:
+            pass
+        # Connection is stale -- try to re-establish.
+        print("[display] USB session lost, reconnecting...", file=sys.stderr)
+        self.close()
+        time.sleep(0.5)
+        self._setup_usb()
+        return self.device is not None
 
     def _send_cmd(self, payload: bytes) -> None:
         self.ep_out.write(payload, timeout=200)
@@ -293,7 +333,7 @@ class UsbDisplayDriver(DisplayDriver):
         lines_list = list(lines)
         super().write_frame(lines_list)
 
-        if self.device is None:
+        if not self._ensure_connected():
             return
 
         self._init_display()
@@ -302,14 +342,14 @@ class UsbDisplayDriver(DisplayDriver):
 
     def send_jpeg(self, jpg_bytes: bytes) -> None:
         """Send a pre-rendered JPEG directly to the display."""
-        if self.device is None:
+        if not self._ensure_connected():
             return
         self._init_display()
         self._push_chunked(_build_jpeg_packet(jpg_bytes))
 
     def send_png_overlay(self, png_bytes: bytes) -> None:
         """Send a PNG overlay to the display."""
-        if self.device is None:
+        if not self._ensure_connected():
             return
         self._push_chunked(_build_png_packet(png_bytes))
 
