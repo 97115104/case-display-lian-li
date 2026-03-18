@@ -5,7 +5,7 @@
 #   ./test-locally.sh hello                          # Send "Hello World" to the LCD
 #   ./test-locally.sh repeat --text "Hi" --interval 2
 #   ./test-locally.sh dictionary --interval 5
-#   ./test-locally.sh webui --port 8000
+#   ./test-locally.sh dashboard --port 8008
 #
 # Dependencies (install once):
 #   .venv/bin/pip install pyusb Pillow pycryptodome
@@ -34,7 +34,7 @@ case "$cmd" in
   dictionary)
     "$PYTHON" display_runner.py dictionary "$@"
     ;;
-  webui)
+  dashboard)
     "$PYTHON" display_web_server.py "$@"
     ;;
   help|-h|--help)
@@ -45,7 +45,7 @@ Commands:
   hello                              Send "Hello World" to the LCD
   repeat   --text "Hello" --interval 2   Repeat text on the LCD
   dictionary --interval 5            Show random words on the LCD
-  webui    --port 8000               Web UI to send text to the LCD
+  dashboard --port 8008              Web dashboard with Ollama monitor
 
 Dependencies:
   .venv/bin/pip install pyusb Pillow pycryptodome

@@ -1,103 +1,90 @@
-# LANCOOL 207 Digital Display - Linux Exploration
+# LANCOOL 207 Digital -- Linux LCD Driver
 
-This repository contains helper tooling to identify and (eventually) drive the
-6" LCD display inside the Lian Li LANCOOL 207 Digital case from Linux.
+Drive the 6" LCD display inside the Lian Li LANCOOL 207 Digital case from Linux.
 
-## What this display is
+Protocol reverse-engineered from the Windows L-Connect 3 driver. Based on work
+by [deyloop](https://github.com/deyloop/lianli_207_lcd).
 
-- **Model:** Lian Li LANCOOL 207 Digital
-- **Screen:** 6" LCD, 720×1600 @ 60Hz, 500 nits
-- **Control:** Via Lian Li "L-Connect 3" software on Windows (supports templates + monitor overlays + secondary screen)
-- **Connection:** The case provides a **Type-A** USB cable (and an internal 9-pin header option) to power/control the screen.
+## Hardware
 
-## Goals
+- Display: 6" LCD, 720x1472 (portrait), 60Hz, 500 nits
+- USB device: `1cbe:a065` (Luminary Micro / lianli-207LCD-1.0)
+- Protocol: DES-CBC encrypted bulk USB transfers
+- Connection: Type-A USB cable from the case
 
-1. Identify the USB device (VID/PID, interface type) that drives the screen.
-2. Capture or reverse-engineer the protocol used by L-Connect 3 to send templates / text.
-3. Build a small Linux tool that can display custom text (e.g., API request info) on the screen.
-
-## Quick Start
-
-**Discovered device:** `1cbe:a065` (Luminary Micro Inc. / lianli-207LCD-1.0)
-
-This device enumerates as a vendor-specific USB bulk device with two bulk endpoints (OUT 0x01, IN 0x81). The driver in this repo attempts to talk to that device when `pyusb` is available.
-
-
-### 1) Scan for candidate USB devices
-
-Run:
+## Setup
 
 ```sh
-./lianli_display_probe.py scan
+python3 -m venv .venv
+.venv/bin/pip install pyusb Pillow pycryptodome
+sudo ./setup-udev.sh          # allow non-root USB access
 ```
 
-If you want to see *all* USB devices, including ones that don't look like Lian Li:
+On Arch-based distros (CachyOS, etc.) you also need:
 
 ```sh
-./lianli_display_probe.py scan --show-all
+sudo pacman -S libusb
 ```
 
-### 2) Inspect a specific device
+## Usage
 
-Once you have a VID/PID from `scan`, show the verbose USB descriptor:
+### Quick test
 
 ```sh
-sudo ./lianli_display_probe.py info --vid 0x1234 --pid 0xabcd
+./test-locally.sh hello
 ```
 
-### 3) Locate a hidraw device (useful if the display is a HID device)
+Sends a "Hello World" image to the LCD.
+
+### Dashboard (web UI)
 
 ```sh
-sudo ./lianli_display_probe.py hid --vid 0x1234 --pid 0xabcd
+./display-screen.sh
 ```
 
-## Next steps (once you have the VID/PID)
+Opens a web dashboard at `http://localhost:8008` where you can:
 
-1. Capture traffic from the Windows L-Connect 3 app while it updates the display.
-   - On Linux: use `usbmon` + `wireshark` (requires root).
-   - On Windows: use `USBPcap` + `Wireshark`.
+- Send custom text to the LCD
+- Run the repeat, dictionary, or hello modes
+- Monitor Ollama API requests in real-time on the LCD
 
-2. While you are working out the protocol, run the built-in debug mode:
+### Other commands
 
 ```sh
 ./test-locally.sh repeat --text "Hello" --interval 2
+./test-locally.sh dictionary --interval 5
 ```
 
-The driver will now attempt a few heuristic packet formats and will print:
-- which packet format it tried
-- any bytes read back from the device (if the device responds)
+## Files
 
-That output is the best clue for reverse-engineering the protocol.
+| File | Description |
+|------|-------------|
+| display_driver.py | Core USB driver (DES-CBC protocol) |
+| display_web_server.py | Web dashboard server with Ollama monitor |
+| display_runner.py | CLI runner (repeat / dictionary modes) |
+| hello_lcd.py | Standalone "Hello World" sender |
+| display-screen.sh | Launch the web dashboard |
+| test-locally.sh | CLI entry point for all commands |
+| setup-udev.sh | Install udev rule for non-root access |
 
-2. Use the captured packets to understand the command format. Typically you will see:
-   - Command header (e.g., `0xA5`), length, and payload.
-   - Pixel/bitmap data, text drawing commands, or template references.
+## Protocol summary
 
-3. Implement a small driver (Python/Node) that sends a minimal command to show text.
+Commands are sent as 500-byte headers, DES-CBC encrypted (key/IV: `slv3tuzx`),
+padded to 512 bytes with trailer `0xA1 0x1A`. Image data is appended after the
+header and sent in 4096-byte chunks, followed by a StartPlay (0x79) command.
 
-## Notes
+| Command | Byte | Description |
+|---------|------|-------------|
+| Rotate | 0x0D | Set display rotation |
+| SyncClock | 0x33 | Set RTC time |
+| StopClock | 0x34 | Stop RTC |
+| JPEG | 0x65 | Send JPEG background (1472x720, rotated -90) |
+| PNG | 0x66 | Send PNG overlay |
+| StartPlay | 0x79 | Begin displaying the sent image |
 
-- Accessing USB hardware usually requires root privileges (or a suitable udev rule).
-- The driver in this repo currently defaults to printing to the console. If you install `pyusb` + libusb, it will attempt to talk to the actual display.
+## License
 
-  To install in this repo (no root required):
-
-  ```sh
-  python3 -m venv .venv
-  ./venv/bin/python -m pip install --upgrade pip pyusb
-  ```
-
-  On CatchyOS (Arch-based), you also need the system libusb library:
-
-  ```sh
-  sudo pacman -S libusb
-  ```
-
-  Then run the test scripts with the venv python:
-
-  ```sh
-  ./test-locally.sh repeat --text "Hello" --interval 2
-  ```
+MIT
 
 - This script is *not* yet a full working display driver; it is a framework to locate the device and send commands once the protocol is known.
 

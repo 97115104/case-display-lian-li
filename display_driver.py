@@ -214,7 +214,7 @@ class UsbDisplayDriver(DisplayDriver):
         try:
             dev.set_configuration()
         except usb.core.USBError:
-            # Retry after releasing
+            # Release and re-find the device from scratch
             for cfg in dev:
                 for intf in cfg:
                     try:
@@ -222,7 +222,17 @@ class UsbDisplayDriver(DisplayDriver):
                     except Exception:
                         pass
             usb.util.dispose_resources(dev)
-            time.sleep(0.5)
+            time.sleep(1)
+            dev = usb.core.find(idVendor=_DISPLAY_VID, idProduct=_DISPLAY_PID)
+            if dev is None:
+                return
+            for cfg in dev:
+                for intf in cfg:
+                    if dev.is_kernel_driver_active(intf.bInterfaceNumber):
+                        try:
+                            dev.detach_kernel_driver(intf.bInterfaceNumber)
+                        except usb.core.USBError:
+                            pass
             dev.set_configuration()
 
         usb.util.claim_interface(dev, 0)
