@@ -1,32 +1,38 @@
 #!/usr/bin/env bash
-# Run the bundled display/testing utilities.
+# Drive the Lian Li LANCOOL 207 Digital LCD.
 #
 # Usage:
-#   ./test-locally.sh repeat --text "Hello" --interval 2
+#   ./test-locally.sh hello                          # Send "Hello World" to the LCD
+#   ./test-locally.sh repeat --text "Hi" --interval 2
 #   ./test-locally.sh dictionary --interval 5
-#   ./test-locally.sh proxy --target http://localhost:8080 --listen 8001
 #   ./test-locally.sh webui --port 8000
+#
+# Dependencies (install once):
+#   .venv/bin/pip install pyusb Pillow pycryptodome
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
 cmd=${1:-help}
 shift 2>/dev/null || true
 
-# Prefer the virtualenv python if present.
+# Use the virtualenv python.
 PYTHON=python
-if [ -x "$(pwd)/.venv/bin/python" ]; then
-  PYTHON="$(pwd)/.venv/bin/python"
+if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+  PYTHON="$SCRIPT_DIR/.venv/bin/python"
 fi
 
 case "$cmd" in
+  hello)
+    "$PYTHON" hello_lcd.py "$@"
+    ;;
   repeat)
     "$PYTHON" display_runner.py repeat "$@"
     ;;
   dictionary)
     "$PYTHON" display_runner.py dictionary "$@"
-    ;;
-  proxy)
-    "$PYTHON" display_runner.py proxy "$@"
     ;;
   webui)
     "$PYTHON" display_web_server.py "$@"
@@ -36,14 +42,13 @@ case "$cmd" in
 Usage: ./test-locally.sh <command> [args]
 
 Commands:
-  repeat  --text "Hello" --interval 2
-  dictionary  --interval 5
-  proxy  --target http://localhost:8080 --listen 8001
-  webui  --port 8000
+  hello                              Send "Hello World" to the LCD
+  repeat   --text "Hello" --interval 2   Repeat text on the LCD
+  dictionary --interval 5            Show random words on the LCD
+  webui    --port 8000               Web UI to send text to the LCD
 
-Notes:
-  - This script prefers the ./venv Python if it exists.
-  - Install dependencies with: ./venv/bin/python -m pip install pyusb
+Dependencies:
+  .venv/bin/pip install pyusb Pillow pycryptodome
 EOF
     ;;
   *)

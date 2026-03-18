@@ -1,22 +1,10 @@
 #!/usr/bin/env python3
-"""Simple local web UI for sending text to the LANCOOL 207 Digital display.
-
-This is a minimal HTTP server that serves a static web page and exposes an
-API endpoint that your code can call to send text to the display.
-
-The display driver is NOT implemented here (because the protocol is unknown).
-Instead this server calls `send_text_to_display()` which you can implement once
-you know how to talk to the hardware.
+"""Web UI for sending text to the Lian Li LANCOOL 207 Digital LCD.
 
 Usage:
-  python display_web_server.py
+  python display_web_server.py --port 8000
 
 Then open http://localhost:8000/ in a browser.
-
-Example API call (curl):
-  curl -X POST http://localhost:8000/api/display \
-    -H "Content-Type: application/json" \
-    -d '{"text": "Hello from the API!", "meta": {"ip":"10.0.0.5"}}'
 """
 
 from __future__ import annotations
@@ -26,26 +14,18 @@ import json
 import socketserver
 import textwrap
 from http import HTTPStatus
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from display_driver import make_driver, show_text
+
+_driver = None
 
 
-def send_text_to_display(text: str, meta: Optional[Dict[str, Any]] = None) -> None:
-    """Send text to the display.
-
-    This function is a placeholder; implement the actual display protocol once
-    you know how to communicate with the HW.
-
-    Args:
-        text: The text to render (plain text or a simple markup string).
-        meta: Optional metadata (e.g., source IP, request path).
-    """
-
-    # TODO: Replace this with a real protocol implementation.
-    #       A common approach is to open a USB/HID device and send a packet with
-    #       a small header + UTF-8 payload.
-    print("[display]", text)
-    if meta:
-        print("[display-meta]", json.dumps(meta, separators=(',', ':')))
+def _get_driver():
+    global _driver
+    if _driver is None:
+        _driver = make_driver()
+    return _driver
 
 
 INDEX_HTML = textwrap.dedent(
@@ -126,7 +106,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else None
 
-        send_text_to_display(text, meta)
+        show_text(text, driver=_get_driver())
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json")
