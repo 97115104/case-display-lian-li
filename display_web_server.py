@@ -136,135 +136,143 @@ def _run_in_background(fn, *args):
 
 # ── Ollama request rendering ────────────────────────────────────────────────
 
+def _load_fonts():
+    """Load DejaVu Mono fonts, falling back to PIL default on failure."""
+    from PIL import ImageFont
+    bold_paths = [
+        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSansMono-Bold.ttf",
+    ]
+    regular_paths = [
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSansMono.ttf",
+    ]
+    default = ImageFont.load_default()
+    font_title = font_label = default
+    for path in bold_paths:
+        try:
+            font_title = ImageFont.truetype(path, 40)
+            font_label = ImageFont.truetype(path, 30)
+            break
+        except (IOError, OSError):
+            continue
+    font_small = default
+    for path in regular_paths:
+        try:
+            font_small = ImageFont.truetype(path, 24)
+            break
+        except (IOError, OSError):
+            continue
+    return font_title, font_label, font_small
+
+
+def _draw_rect(draw, box, radius, fill):
+    """Draw a rectangle, using rounded_rectangle when available."""
+    try:
+        draw.rounded_rectangle(box, radius=radius, fill=fill)
+    except AttributeError:
+        draw.rectangle(box, fill=fill)
+
+
 def _render_ollama_display():
     """Render the current Ollama request log onto the LCD."""
     from PIL import Image, ImageDraw, ImageFont
 
     canvas_w, canvas_h = DISPLAY_W, DISPLAY_H  # 1472 x 720 landscape
-    img = Image.new('RGB', (canvas_w, canvas_h), color=(15, 15, 25))
+    img = Image.new('RGB', (canvas_w, canvas_h), color=(10, 12, 30))
     draw = ImageDraw.Draw(img)
 
-    # Gradient background
-    for y in range(canvas_h):
-        r = int(15 + 15 * (y / canvas_h))
-        g = int(15 + 10 * (y / canvas_h))
-        b = int(25 + 35 * (y / canvas_h))
-        draw.line([(0, y), (canvas_w, y)], fill=(r, g, b))
+    # High-contrast gradient background (dark navy → slightly lighter navy)
+    for cy in range(canvas_h):
+        t = cy / canvas_h
+        r = int(10 + 8 * t)
+        g = int(12 + 10 * t)
+        b = int(30 + 25 * t)
+        draw.line([(0, cy), (canvas_w, cy)], fill=(r, g, b))
 
-    # Load fonts
-    font_title = font_label = font_body = font_small = None
-    for path in [
-        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
-        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSansMono-Bold.ttf",
-    ]:
-        try:
-            font_title = ImageFont.truetype(path, 38)
-            font_label = ImageFont.truetype(path, 28)
-            break
-        except (IOError, OSError):
-            continue
-    for path in [
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSansMono.ttf",
-    ]:
-        try:
-            font_body = ImageFont.truetype(path, 24)
-            font_small = ImageFont.truetype(path, 20)
-            break
-        except (IOError, OSError):
-            continue
-    if font_title is None:
-        font_title = font_label = font_body = font_small = ImageFont.load_default()
+    font_title, font_label, font_small = _load_fonts()
 
-    pad = 24
+    pad = 20
     y = pad
 
-    # Title bar
-    draw.rounded_rectangle(
-        [pad, y, canvas_w - pad, y + 56], radius=10,
-        fill=(25, 25, 45, 200)
-    )
-    draw.text((pad + 16, y + 8), "OLLAMA REQUEST MONITOR", font=font_title, fill=(100, 200, 255))
+    # Title bar — bright teal background, white text
+    _draw_rect(draw, [0, y, canvas_w, y + 62], radius=0, fill=(0, 80, 140))
+    draw.text((pad + 12, y + 10), "OLLAMA REQUEST MONITOR", font=font_title, fill=(255, 255, 255))
     ts = datetime.now().strftime("%H:%M:%S")
     ts_w = draw.textbbox((0, 0), ts, font=font_label)[2]
-    draw.text((canvas_w - pad - ts_w - 16, y + 14), ts, font=font_label, fill=(120, 120, 160))
-    y += 72
+    draw.text((canvas_w - ts_w - pad - 12, y + 14), ts, font=font_label, fill=(180, 230, 255))
+    y += 68
 
     with _ollama_lock:
         requests = list(_ollama_requests)
 
     if not requests:
-        draw.text((pad + 16, y + 20), "Waiting for requests...", font=font_label, fill=(80, 80, 120))
-        draw.text((pad + 16, y + 60), f"Proxy: /ollama/ -> {_ollama_target}", font=font_small, fill=(60, 60, 100))
+        draw.text((pad + 12, y + 24), "Waiting for requests...", font=font_label, fill=(220, 220, 255))
+        draw.text((pad + 12, y + 68), f"Proxy: /ollama/ -> {_ollama_target}", font=font_small, fill=(160, 180, 220))
     else:
         # Show recent requests, newest first, filling available space
         for req in reversed(requests):
-            if y > canvas_h - 60:
+            if y > canvas_h - 70:
                 break
 
-            # Card background
-            card_h = 88
-            draw.rounded_rectangle(
-                [pad, y, canvas_w - pad, y + card_h], radius=8,
-                fill=(20, 22, 38)
-            )
+            card_h = 96
+            # Card — noticeably lighter than background so it stands out
+            _draw_rect(draw, [pad, y, canvas_w - pad, y + card_h], radius=6, fill=(25, 45, 90))
+            # Left accent stripe
+            draw.rectangle([pad, y, pad + 4, y + card_h], fill=(0, 160, 255))
 
-            # Method + path
             method = req.get("method", "?")
-            path = req.get("path", "")
-            model = req.get("model", "")
-            ip = req.get("ip", "?")
-            status = req.get("status", "...")
-            dur = req.get("duration_ms", "")
+            path   = req.get("path", "")
+            model  = req.get("model", "")
+            ip     = req.get("ip", "?")
+            status = req.get("status", "---")
+            dur    = req.get("duration_ms", "")
             ts_str = req.get("time", "")
 
             # Status color
             if isinstance(status, int) and status < 300:
-                status_color = (80, 220, 130)
+                status_color = (80, 255, 140)
             elif isinstance(status, int) and status < 500:
-                status_color = (255, 200, 60)
+                status_color = (255, 220, 50)
             else:
                 status_color = (255, 80, 80)
 
-            # Method pill
+            # Method pill — vivid solid fill
             method_colors = {
-                "GET": (60, 160, 220), "POST": (100, 200, 100),
-                "PUT": (220, 180, 60), "DELETE": (220, 80, 80),
+                "GET":    (30, 140, 255),
+                "POST":   (40, 200, 100),
+                "PUT":    (220, 160, 30),
+                "DELETE": (220, 60, 60),
             }
-            mc = method_colors.get(method, (150, 150, 150))
-            mw = draw.textbbox((0, 0), method, font=font_label)[2] + 20
-            draw.rounded_rectangle(
-                [pad + 12, y + 10, pad + 12 + mw, y + 42], radius=6, fill=mc
-            )
-            draw.text((pad + 22, y + 10), method, font=font_label, fill=(255, 255, 255))
+            mc = method_colors.get(method, (120, 120, 180))
+            mw = draw.textbbox((0, 0), method, font=font_label)[2] + 24
+            _draw_rect(draw, [pad + 14, y + 12, pad + 14 + mw, y + 46], radius=5, fill=mc)
+            draw.text((pad + 26, y + 12), method, font=font_label, fill=(255, 255, 255))
 
-            # Path (truncated)
-            display_path = path
-            if len(display_path) > 40:
-                display_path = display_path[:40] + "..."
-            draw.text((pad + 22 + mw + 10, y + 12), display_path, font=font_label, fill=(200, 200, 220))
+            # Path — bright white
+            display_path = path if len(path) <= 45 else path[:45] + "..."
+            draw.text((pad + 14 + mw + 12, y + 14), display_path, font=font_label, fill=(240, 240, 255))
 
-            # Status code
+            # Status code — right-aligned, colored
             status_text = str(status)
             sw = draw.textbbox((0, 0), status_text, font=font_label)[2]
-            draw.text((canvas_w - pad - sw - 16, y + 12), status_text, font=font_label, fill=status_color)
+            draw.text((canvas_w - pad - sw - 16, y + 14), status_text, font=font_label, fill=status_color)
 
-            # Second line: IP, model, duration, timestamp
-            line2_parts = []
-            line2_parts.append(f"IP: {ip}")
+            # Second line — IP, model, duration, timestamp in bright light-gray
+            line2_parts = [f"  {ip}"]
             if model:
-                m = model if len(model) <= 25 else model[:25] + "..."
-                line2_parts.append(f"Model: {m}")
+                m = model if len(model) <= 28 else model[:28] + "..."
+                line2_parts.append(f"model:{m}")
             if dur:
                 line2_parts.append(f"{dur}ms")
             if ts_str:
                 line2_parts.append(ts_str)
             line2 = "   ".join(line2_parts)
-            draw.text((pad + 16, y + 52), line2, font=font_small, fill=(110, 115, 145))
+            draw.text((pad + 14, y + 60), line2, font=font_small, fill=(190, 210, 255))
 
-            y += card_h + 8
+            y += card_h + 6
 
     # Rotate for portrait display
     img = img.rotate(-90, expand=True)
@@ -540,7 +548,7 @@ async function refreshDiag() {
       `driver_has_device:  ${d.driver_has_device}`,
       `bg_thread_alive:    ${d.bg_thread_alive}`,
       d.errors && d.errors.length ? `errors: ${d.errors.join('; ')}` : null,
-    ].filter(Boolean).join('\n');
+    ].filter(Boolean).join('\\n');
     document.getElementById('diag-info').textContent = lines;
   } catch (e) {
     document.getElementById('diag-info').textContent = 'Error: ' + e.message;
@@ -983,10 +991,45 @@ class ThreadedHTTPServer(HTTPServer):
             self.shutdown_request(request)
 
 
-def run_server(port: int = 8008) -> None:
+def _watch_and_reload(watch_dir: str) -> None:
+    """Background thread: restart the process when any .py file changes."""
+    import glob
+
+    def _mtimes():
+        return {
+            p: os.path.getmtime(p)
+            for p in glob.glob(os.path.join(watch_dir, "*.py"))
+        }
+
+    last = _mtimes()
+    _slog("[reload] watching *.py for changes...")
+    while True:
+        time.sleep(1)
+        current = _mtimes()
+        changed = [
+            p for p, mt in current.items()
+            if last.get(p) != mt
+        ] + [p for p in last if p not in current]
+        if changed:
+            _slog(f"[reload] {os.path.basename(changed[0])} changed — restarting...")
+            print(f"\n[reload] {changed[0]} changed — restarting server...", flush=True)
+            # Brief pause so the file write is fully flushed
+            time.sleep(0.3)
+            _stop_background()
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        last = current
+
+
+def run_server(port: int = 8008, reload: bool = False) -> None:
+    if reload:
+        watch_dir = os.path.dirname(os.path.abspath(__file__))
+        t = threading.Thread(target=_watch_and_reload, args=(watch_dir,), daemon=True)
+        t.start()
     server = ThreadedHTTPServer(("0.0.0.0", port), DashboardHandler)
     print(f"Dashboard: http://localhost:{port}/")
     print(f"Ollama proxy: http://localhost:{port}/ollama/")
+    if reload:
+        print(f"Auto-reload: watching *.py in {os.path.dirname(os.path.abspath(__file__))}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -998,8 +1041,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(description="LANCOOL 207 LCD Dashboard")
     parser.add_argument("--port", type=int, default=8008, help="Port to listen on")
+    parser.add_argument("--reload", action="store_true", default=False,
+                        help="Auto-restart when .py files change")
     args = parser.parse_args(argv)
-    run_server(port=args.port)
+    run_server(port=args.port, reload=args.reload)
     return 0
 
 

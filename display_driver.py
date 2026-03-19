@@ -33,7 +33,7 @@ def _log(msg: str) -> None:
 
 # USB IDs for the LANCOOL 207 Digital.
 _DISPLAY_VID = 0x1CBE
-_DISPLAY_PID = 0xA065
+_DISPLAY_PID = 0xF000
 
 # DES-CBC key & IV (same 8-byte value).
 _DES_KEY = b'slv3tuzx'
@@ -548,7 +548,24 @@ def sysfs_reset_usb() -> dict:
         except Exception as e:
             _log(f"[display] sysfs_reset_usb: ioctl failed: {e}")
 
-    # Method 2: toggle 'authorized' in sysfs (requires root or special perms)
+    # Method 2: kernel unbind/bind via sysfs (strongest; requires root)
+    if sysfs_path:
+        port_name = os.path.basename(sysfs_path)  # e.g. "1-2" or "1-1.4"
+        unbind_path = "/sys/bus/usb/drivers/usb/unbind"
+        bind_path   = "/sys/bus/usb/drivers/usb/bind"
+        try:
+            with open(unbind_path, "w") as fh:
+                fh.write(port_name)
+            time.sleep(1.0)
+            with open(bind_path, "w") as fh:
+                fh.write(port_name)
+            time.sleep(0.5)
+            _log(f"[display] sysfs_reset_usb: unbind/bind OK on {port_name}")
+            return {"ok": True, "method": "unbind_bind", "detail": port_name}
+        except Exception as e:
+            _log(f"[display] sysfs_reset_usb: unbind/bind failed: {e}")
+
+    # Method 3: toggle 'authorized' in sysfs (requires root or special perms)
     if sysfs_path:
         auth_path = os.path.join(sysfs_path, "authorized")
         try:

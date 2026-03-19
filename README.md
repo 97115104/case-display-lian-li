@@ -8,7 +8,7 @@ by [deyloop](https://github.com/deyloop/lianli_207_lcd).
 ## Hardware
 
 - Display: 6" LCD, 720x1472 (portrait), 60Hz, 500 nits
-- USB device: `1cbe:a065` (Luminary Micro / lianli-207LCD-1.0)
+- USB device: `1cbe:f000` (Luminary Micro / USB-Daemon)
 - Protocol: DES-CBC encrypted bulk USB transfers
 - Connection: Type-A USB cable from the case
 
@@ -127,5 +127,5 @@ If it still doesn't work, share the output of the probe command again:
 
 ```sh
 ./lianli_display_probe.py scan
-./lianli_display_probe.py info --vid 0x1cbe --pid 0xa065
+./lianli_display_probe.py info --vid 0x1cbe --pid 0xf000
 ```

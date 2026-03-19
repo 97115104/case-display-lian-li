@@ -2,13 +2,14 @@
 # Drive the Lian Li LANCOOL 207 Digital LCD.
 #
 # Usage:
-#   ./test-locally.sh hello                          # Send "Hello World" to the LCD
+#   ./test-locally.sh hello                               # Send "Hello World" to the LCD
 #   ./test-locally.sh repeat --text "Hi" --interval 2
 #   ./test-locally.sh dictionary --interval 5
-#   ./test-locally.sh dashboard --port 8008
+#   ./test-locally.sh dashboard [--port 8008]             # Node.js dashboard (hot-reload)
 #
 # Dependencies (install once):
-#   .venv/bin/pip install pyusb Pillow pycryptodome
+#   pip install pyusb Pillow pycryptodome
+#   npm install
 
 set -euo pipefail
 
@@ -18,8 +19,8 @@ cd "$SCRIPT_DIR"
 cmd=${1:-help}
 shift 2>/dev/null || true
 
-# Use the virtualenv python.
-PYTHON=python
+# Use the virtualenv python if present.
+PYTHON=python3
 if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
   PYTHON="$SCRIPT_DIR/.venv/bin/python"
 fi
@@ -35,20 +36,35 @@ case "$cmd" in
     "$PYTHON" display_runner.py dictionary "$@"
     ;;
   dashboard)
-    "$PYTHON" display_web_server.py "$@"
+    # Parse optional --port arg
+    PORT=8008
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --port) PORT="$2"; shift 2 ;;
+        *)      shift ;;
+      esac
+    done
+    # Install npm deps if needed
+    if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
+      echo "node_modules not found — running npm install..."
+      npm install
+    fi
+    echo "Starting dashboard on http://localhost:$PORT/ (hot-reload enabled)"
+    exec PORT="$PORT" npx nodemon --watch 'server.js' --watch 'public' --ext js,html,css server.js
     ;;
   help|-h|--help)
     cat <<'EOF'
 Usage: ./test-locally.sh <command> [args]
 
 Commands:
-  hello                              Send "Hello World" to the LCD
-  repeat   --text "Hello" --interval 2   Repeat text on the LCD
-  dictionary --interval 5            Show random words on the LCD
-  dashboard --port 8008              Web dashboard with Ollama monitor
+  hello                                  Send "Hello World" to the LCD
+  repeat     --text "Hello" --interval 2 Repeat text on the LCD
+  dictionary --interval 5                Show random words on the LCD
+  dashboard  [--port 8008]               Node.js web dashboard (auto-reloads on save)
 
 Dependencies:
-  .venv/bin/pip install pyusb Pillow pycryptodome
+  pip install pyusb Pillow pycryptodome
+  npm install
 EOF
     ;;
   *)

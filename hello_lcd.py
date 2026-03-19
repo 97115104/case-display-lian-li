@@ -18,7 +18,7 @@ from Crypto.Util.Padding import pad
 
 # ── Constants ────────────────────────────────────────────────────────────────
 VID       = 0x1CBE
-PID       = 0xA065
+PID       = 0xF000
 DES_KEY   = b'slv3tuzx'
 W, H      = 720, 1472        # display dimensions (landscape input)
 CHUNK     = 4096
