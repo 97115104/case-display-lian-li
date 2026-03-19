@@ -354,6 +354,36 @@ INDEX_HTML = textwrap.dedent("""\
     <div class="status" id="action-status"></div>
   </div>
 
+  <!-- Test Ollama Request -->
+  <div class="card wide">
+    <h2>Test Ollama Request</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin-bottom:.8rem">
+      Send a test request through the proxy to verify Ollama is reachable.
+      The request will appear in the monitor log below.
+    </p>
+    <div class="row">
+      <div style="flex:0 0 180px">
+        <label for="test-model">Model</label>
+        <input id="test-model" placeholder="e.g. llama3" value="llama3">
+      </div>
+      <div>
+        <label for="test-prompt">Prompt</label>
+        <input id="test-prompt" value="Say hello in one sentence.">
+      </div>
+    </div>
+    <div style="display:flex;gap:.6rem;margin-top:.8rem;flex-wrap:wrap">
+      <button class="btn btn-green btn-sm" onclick="testOllamaGenerate()">Send Generate</button>
+      <button class="btn btn-blue btn-sm" onclick="testOllamaTags()">List Models (/api/tags)</button>
+    </div>
+    <div class="status" id="test-status"></div>
+    <pre id="test-response" style="
+      margin-top:.6rem; background:var(--bg); border:1px solid var(--border);
+      border-radius:8px; padding:.7rem; font-size:.72rem; line-height:1.5;
+      max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all;
+      display:none;
+    "></pre>
+  </div>
+
   <!-- Ollama Monitor -->
   <div class="card wide">
     <h2><span class="indicator off" id="ollama-dot"></span>Ollama Request Monitor</h2>
@@ -435,6 +465,57 @@ async function ollamaStop() {
 
 // Poll for new Ollama request log entries
 let lastLogLen = 0;
+
+async function testOllamaGenerate() {
+  const model = document.getElementById('test-model').value.trim();
+  const prompt = document.getElementById('test-prompt').value.trim();
+  if (!model) { setStatus('test-status', 'Enter a model name', false); return; }
+  if (!prompt) { setStatus('test-status', 'Enter a prompt', false); return; }
+  setStatus('test-status', 'Sending generate request...');
+  const pre = document.getElementById('test-response');
+  pre.style.display = 'none';
+  pre.textContent = '';
+  try {
+    const resp = await fetch('/ollama/api/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model, prompt, stream: false}),
+    });
+    const text = await resp.text();
+    let display = text;
+    try {
+      const j = JSON.parse(text);
+      display = JSON.stringify(j, null, 2);
+    } catch {}
+    setStatus('test-status', `Response: HTTP ${resp.status}`, resp.ok);
+    pre.textContent = display;
+    pre.style.display = 'block';
+  } catch (e) {
+    setStatus('test-status', 'Error: ' + e.message, false);
+  }
+}
+
+async function testOllamaTags() {
+  setStatus('test-status', 'Fetching model list...');
+  const pre = document.getElementById('test-response');
+  pre.style.display = 'none';
+  pre.textContent = '';
+  try {
+    const resp = await fetch('/ollama/api/tags');
+    const text = await resp.text();
+    let display = text;
+    try {
+      const j = JSON.parse(text);
+      display = JSON.stringify(j, null, 2);
+    } catch {}
+    setStatus('test-status', `Response: HTTP ${resp.status}`, resp.ok);
+    pre.textContent = display;
+    pre.style.display = 'block';
+  } catch (e) {
+    setStatus('test-status', 'Error: ' + e.message, false);
+  }
+}
+
 async function pollLog() {
   try {
     const r = await fetch('/api/ollama/log');
