@@ -8,11 +8,28 @@ Display: 720x1472 (landscape input rotated -90° for portrait).
 
 from __future__ import annotations
 
+import fcntl
 import io
+import os
 import struct
+import subprocess
 import sys
 import time
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
+
+# Optional external log sink.  Set to a callable(str) to capture log lines
+# (e.g. from the web server into a ring buffer).
+_log_sink: Optional[Callable[[str], None]] = None
+
+
+def _log(msg: str) -> None:
+    """Print to stderr and forward to any registered log sink."""
+    print(msg, file=sys.stderr)
+    try:
+        if _log_sink is not None:
+            _log_sink(msg)
+    except Exception:
+        pass
 
 # USB IDs for the LANCOOL 207 Digital.
 _DISPLAY_VID = 0x1CBE
@@ -211,6 +228,78 @@ class UsbDisplayDriver(DisplayDriver):
         self.ep_in = None
         self._initialized = False
 
+    def force_reinit(self) -> bool:
+        """Force re-initialisation of the display protocol without a USB reset.
+
+        Useful when the USB connection is fine but the display firmware is in
+        an unknown state (e.g. after the process held a stale reference).
+        """
+        self._initialized = False
+        if not self._ensure_connected():
+            _log("[display] force_reinit: not connected, attempting setup...")
+            self._setup_usb()
+        if self.device is None:
+            _log("[display] force_reinit: still no USB device")
+            return False
+        try:
+            self._init_display()
+            _log("[display] force_reinit: done")
+            return True
+        except Exception as e:
+            _log(f"[display] force_reinit: _init_display raised {e}")
+            return False
+
+    def hard_reset(self) -> bool:
+        """Send a USB-level reset to the device, then reconnect and re-init.
+
+        Returns True if the device came back and initialised successfully.
+        """
+        import usb.core
+        import usb.util
+
+        _log("[display] hard_reset: sending USB reset...")
+
+        # If we still have a handle, try a bus-level reset before releasing.
+        if self.device is not None:
+            try:
+                self.device.reset()
+            except Exception as e:
+                _log(f"[display] hard_reset: reset() raised {e}")
+            # Give the device a moment to recover after the reset signal.
+            time.sleep(0.5)
+
+        # Full resource release.
+        self.close()
+
+        # Wait for the device to re-enumerate on the bus (up to 8 s).
+        deadline = time.time() + 8.0
+        dev = None
+        while time.time() < deadline:
+            dev = usb.core.find(idVendor=_DISPLAY_VID, idProduct=_DISPLAY_PID)
+            if dev is not None:
+                break
+            time.sleep(0.5)
+
+        if dev is None:
+            _log("[display] hard_reset: device did not re-enumerate via pyusb")
+            return False
+
+        # Small extra settling delay.
+        time.sleep(1.0)
+        self._setup_usb()
+        if self.device is None:
+            _log("[display] hard_reset: _setup_usb failed after re-enumeration")
+            return False
+
+        try:
+            self._init_display()
+        except Exception as e:
+            _log(f"[display] hard_reset: _init_display raised {e}")
+            return False
+
+        _log("[display] hard_reset: device ready")
+        return True
+
     def _setup_usb(self) -> None:
         import usb.core
         import usb.util
@@ -285,11 +374,13 @@ class UsbDisplayDriver(DisplayDriver):
         except Exception:
             pass
         # Connection is stale -- try to re-establish.
-        print("[display] USB session lost, reconnecting...", file=sys.stderr)
+        _log("[display] USB session lost, reconnecting...")
         self.close()
         time.sleep(0.5)
         self._setup_usb()
-        return self.device is not None
+        connected = self.device is not None
+        _log(f"[display] reconnect {'succeeded' if connected else 'failed'}")
+        return connected
 
     def _send_cmd(self, payload: bytes) -> None:
         self.ep_out.write(payload, timeout=200)
@@ -354,6 +445,141 @@ class UsbDisplayDriver(DisplayDriver):
         self._push_chunked(_build_png_packet(png_bytes))
 
 
+def usb_diag() -> dict:
+    """Return a diagnostic snapshot of the USB device state."""
+    vid_str = f"{_DISPLAY_VID:04x}"
+    pid_str = f"{_DISPLAY_PID:04x}"
+    info: dict = {
+        "vid": f"0x{_DISPLAY_VID:04X}",
+        "pid": f"0x{_DISPLAY_PID:04X}",
+        "pyusb_found": False,
+        "sysfs_path": None,
+        "dev_path": None,
+        "dev_writable": None,
+        "lsusb": None,
+        "kernel_driver_active": None,
+        "errors": [],
+    }
+    # pyusb probe
+    try:
+        import usb.core
+        dev = usb.core.find(idVendor=_DISPLAY_VID, idProduct=_DISPLAY_PID)
+        info["pyusb_found"] = dev is not None
+        if dev is not None:
+            try:
+                info["manufacturer"] = dev.manufacturer
+            except Exception:
+                pass
+            try:
+                info["product"] = dev.product
+            except Exception:
+                pass
+            try:
+                info["kernel_driver_active"] = dev.is_kernel_driver_active(0)
+            except Exception:
+                pass
+    except Exception as e:
+        info["errors"].append(f"pyusb: {e}")
+
+    # sysfs probe
+    sysfs_base = "/sys/bus/usb/devices"
+    try:
+        for name in sorted(os.listdir(sysfs_base)):
+            path = os.path.join(sysfs_base, name)
+            try:
+                vid = open(os.path.join(path, "idVendor")).read().strip()
+                pid = open(os.path.join(path, "idProduct")).read().strip()
+                if vid == vid_str and pid == pid_str:
+                    info["sysfs_path"] = path
+                    try:
+                        busnum = int(open(os.path.join(path, "busnum")).read())
+                        devnum = int(open(os.path.join(path, "devnum")).read())
+                        dev_path = f"/dev/bus/usb/{busnum:03d}/{devnum:03d}"
+                        info["dev_path"] = dev_path
+                        info["dev_writable"] = os.access(dev_path, os.W_OK)
+                    except Exception as e:
+                        info["errors"].append(f"sysfs busnum/devnum: {e}")
+                    break
+            except Exception:
+                continue
+    except Exception as e:
+        info["errors"].append(f"sysfs scan: {e}")
+
+    # lsusb
+    try:
+        r = subprocess.run(
+            ["lsusb", "-d", f"{_DISPLAY_VID:04x}:{_DISPLAY_PID:04x}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        info["lsusb"] = r.stdout.strip() or "(not found by lsusb)"
+        if r.returncode != 0 and not info["lsusb"]:
+            info["lsusb"] = "(lsusb returned non-zero, device not found)"
+    except FileNotFoundError:
+        info["lsusb"] = "(lsusb not installed)"
+    except Exception as e:
+        info["lsusb"] = f"lsusb error: {e}"
+
+    return info
+
+
+def sysfs_reset_usb() -> dict:
+    """Reset the display USB device via the kernel USBDEVFS_RESET ioctl.
+
+    This works even when pyusb cannot find the device, as long as the process
+    has write access to /dev/bus/usb/BUS/DEV (granted by udev rules).
+    Returns a dict with keys: ok (bool), method (str), detail (str).
+    """
+    d = usb_diag()
+    dev_path = d.get("dev_path")
+    sysfs_path = d.get("sysfs_path")
+
+    if dev_path is None and sysfs_path is None:
+        return {"ok": False, "method": None,
+                "detail": "device not found in sysfs or /dev/bus/usb"}
+
+    # Method 1: USBDEVFS_RESET ioctl via /dev/bus/usb
+    if dev_path and d.get("dev_writable"):
+        USBDEVFS_RESET = 0x5514  # _IO('U', 20) from <linux/usbdevice_fs.h>
+        try:
+            with open(dev_path, "wb") as fh:
+                fcntl.ioctl(fh, USBDEVFS_RESET, 0)
+            _log(f"[display] sysfs_reset_usb: USBDEVFS_RESET OK on {dev_path}")
+            return {"ok": True, "method": "ioctl_reset", "detail": dev_path}
+        except Exception as e:
+            _log(f"[display] sysfs_reset_usb: ioctl failed: {e}")
+
+    # Method 2: toggle 'authorized' in sysfs (requires root or special perms)
+    if sysfs_path:
+        auth_path = os.path.join(sysfs_path, "authorized")
+        try:
+            with open(auth_path, "w") as fh:
+                fh.write("0")
+            time.sleep(0.5)
+            with open(auth_path, "w") as fh:
+                fh.write("1")
+            _log(f"[display] sysfs_reset_usb: authorized toggle OK on {sysfs_path}")
+            return {"ok": True, "method": "authorized_toggle", "detail": sysfs_path}
+        except Exception as e:
+            _log(f"[display] sysfs_reset_usb: authorized toggle failed: {e}")
+            return {
+                "ok": False, "method": "authorized_toggle",
+                "detail": (
+                    f"Failed: {e}. "
+                    f"dev_path={dev_path!r} writable={d.get('dev_writable')} "
+                    f"sysfs={sysfs_path!r}. "
+                    "Check udev rules (setup-udev.sh) or run with sudo."
+                ),
+            }
+
+    return {
+        "ok": False, "method": None,
+        "detail": (
+            f"dev_path={dev_path!r} writable={d.get('dev_writable')} — "
+            "no usable reset method. Check udev rules."
+        ),
+    }
+
+
 def make_driver() -> DisplayDriver:
     """Create the display driver.
 
@@ -363,8 +589,9 @@ def make_driver() -> DisplayDriver:
         drv = UsbDisplayDriver()
         if drv.device is not None:
             return drv
-    except Exception:
-        pass
+        _log("[display] make_driver: UsbDisplayDriver created but device is None (no USB)")
+    except Exception as e:
+        _log(f"[display] make_driver: exception creating UsbDisplayDriver: {e}")
     return DisplayDriver()
 
 

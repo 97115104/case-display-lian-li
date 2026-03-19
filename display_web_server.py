@@ -35,12 +35,28 @@ from display_driver import (
     UsbDisplayDriver,
     make_driver,
     show_text,
+    usb_diag,
+    sysfs_reset_usb,
 )
+import display_driver as _dd
 
 # ── State ────────────────────────────────────────────────────────────────────
 
 _driver = None
 _driver_lock = threading.Lock()
+
+# Server-side log ring buffer (captures driver _log() calls + our own entries)
+_server_log: deque = deque(maxlen=200)
+
+
+def _slog(msg: str) -> None:
+    """Append a timestamped entry to the server log ring buffer."""
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    _server_log.append(f"[{ts}] {msg}")
+
+
+# Hook the driver's _log() into our ring buffer.
+_dd._log_sink = _slog
 
 # Ollama monitor state
 _ollama_target: str = "http://localhost:11434"
@@ -62,16 +78,43 @@ def _get_driver():
 
 
 def _restart_driver():
-    """Tear down and re-create the USB driver."""
+    """Hard-reset the USB device and return a fresh, initialised driver.
+
+    Cascade:
+      1. pyusb hard_reset()  (device.reset() + reconnect)
+      2. sysfs USBDEVFS_RESET ioctl (works even if pyusb loses the device)
+      3. Plain close + recreate with longer settle time
+    """
     global _driver
     _stop_background()
     with _driver_lock:
         old = _driver
         _driver = None
-        if old and hasattr(old, 'close'):
+
+        # ── Stage 1: pyusb hard reset ────────────────────────────────────
+        if old is not None and hasattr(old, 'hard_reset'):
+            _slog("[restart] trying pyusb hard_reset...")
+            ok = old.hard_reset()
+            if ok:
+                _slog("[restart] pyusb hard_reset succeeded")
+                _driver = old
+                return _driver
+            _slog("[restart] pyusb hard_reset failed, trying sysfs reset...")
+        elif old is not None and hasattr(old, 'close'):
             old.close()
-        time.sleep(1)
+
+        # ── Stage 2: sysfs / USBDEVFS_RESET ioctl ───────────────────────
+        sr = sysfs_reset_usb()
+        _slog(f"[restart] sysfs_reset_usb: ok={sr['ok']} method={sr.get('method')} detail={sr.get('detail')}")
+        if sr["ok"]:
+            time.sleep(1.5)
+
+        # ── Stage 3: recreate driver ─────────────────────────────────────
+        _slog("[restart] recreating driver...")
+        time.sleep(1.0)
         _driver = make_driver()
+        ok2 = hasattr(_driver, 'device') and _driver.device is not None
+        _slog(f"[restart] driver recreated: usb_ok={ok2}")
         return _driver
 
 
@@ -350,7 +393,11 @@ INDEX_HTML = textwrap.dedent("""\
     <button class="btn btn-green btn-sm" onclick="runAction('hello')">Hello World</button>
     <button class="btn btn-blue btn-sm" onclick="runAction('dictionary')">Random Words</button>
     <button class="btn btn-red btn-sm" onclick="runAction('stop')">Stop</button>
-    <button class="btn btn-orange btn-sm" onclick="runAction('restart')" style="margin-left:.5rem">Restart Display</button>
+    <button class="btn btn-orange btn-sm" onclick="runAction('restart')" style="margin-left:.5rem">Soft Reset</button>
+    <hr style="border-color:var(--border);margin:.8rem 0">
+    <p style="font-size:.75rem;color:var(--muted);margin-bottom:.5rem">Advanced recovery:</p>
+    <button class="btn btn-orange btn-sm" onclick="runAction('force_reinit')" title="Re-run display init without USB reset">Force Reinit</button>
+    <button class="btn btn-red btn-sm" onclick="doSysfsReset()" title="Kernel-level USBDEVFS_RESET ioctl (most reliable)">USB Sysfs Reset</button>
     <div class="status" id="action-status"></div>
   </div>
 
@@ -382,6 +429,25 @@ INDEX_HTML = textwrap.dedent("""\
       max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all;
       display:none;
     "></pre>
+  </div>
+
+  <!-- Diagnostics -->
+  <div class="card wide">
+    <h2>USB Diagnostics &amp; Server Log</h2>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
+      <button class="btn btn-blue btn-sm" onclick="refreshDiag()">Refresh Diag</button>
+      <button class="btn btn-blue btn-sm" onclick="refreshLog()">Refresh Log</button>
+      <button class="btn btn-orange btn-sm" onclick="clearLog()">Clear Log</button>
+    </div>
+    <div id="diag-info" style="
+      background:var(--bg); border:1px solid var(--border); border-radius:8px;
+      padding:.7rem; font-size:.75rem; font-family:monospace; line-height:1.8;
+      margin-bottom:.6rem; white-space:pre-wrap; word-break:break-all;
+    ">Click 'Refresh Diag' to load USB status.</div>
+    <div style="font-size:.8rem;color:var(--muted);margin-bottom:.3rem">Server log (newest first):</div>
+    <div class="log-box" id="server-log" style="max-height:220px">
+      <div style="color:var(--muted)">No log entries yet.</div>
+    </div>
   </div>
 
   <!-- Ollama Monitor -->
@@ -441,9 +507,76 @@ async function runAction(action) {
   setStatus('action-status', 'Running ' + action + '...');
   try {
     const r = await api('/api/action', {action});
-    setStatus('action-status', r.status || 'ok', true);
+    const ok = r.usb_ok !== undefined ? r.usb_ok : true;
+    setStatus('action-status', r.status || 'ok', ok);
+    // Refresh diag automatically after any recovery action
+    if (['restart','force_reinit','sysfs_reset'].includes(action)) refreshDiag();
   } catch (e) { setStatus('action-status', 'Error: ' + e.message, false); }
 }
+
+async function doSysfsReset() {
+  setStatus('action-status', 'Sending USBDEVFS_RESET ioctl...');
+  try {
+    const r = await api('/api/action', {action: 'sysfs_reset'});
+    setStatus('action-status', r.status || (r.ok ? 'ok' : 'failed'), r.ok || r.driver_ok);
+    refreshDiag();
+    refreshLog();
+  } catch (e) { setStatus('action-status', 'Error: ' + e.message, false); }
+}
+
+async function refreshDiag() {
+  try {
+    const r = await fetch('/api/diag');
+    const d = await r.json();
+    const lines = [
+      `pyusb_found:        ${d.pyusb_found}`,
+      `sysfs_path:         ${d.sysfs_path || '(not found)'}`,
+      `dev_path:           ${d.dev_path || '(none)'}`,
+      `dev_writable:       ${d.dev_writable}`,
+      `lsusb:              ${d.lsusb || '—'}`,
+      `kernel_driver:      ${d.kernel_driver_active}`,
+      `driver_type:        ${d.driver_type}`,
+      `driver_initialized: ${d.driver_initialized}`,
+      `driver_has_device:  ${d.driver_has_device}`,
+      `bg_thread_alive:    ${d.bg_thread_alive}`,
+      d.errors && d.errors.length ? `errors: ${d.errors.join('; ')}` : null,
+    ].filter(Boolean).join('\n');
+    document.getElementById('diag-info').textContent = lines;
+  } catch (e) {
+    document.getElementById('diag-info').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function refreshLog() {
+  try {
+    const r = await fetch('/api/log');
+    const d = await r.json();
+    const box = document.getElementById('server-log');
+    if (d.log && d.log.length) {
+      box.innerHTML = d.log.slice().reverse().map(line =>
+        `<div class="log-entry">${escHtml(line)}</div>`
+      ).join('');
+    } else {
+      box.innerHTML = '<div style="color:var(--muted)">No log entries yet.</div>';
+    }
+  } catch (e) {}
+}
+
+async function clearLog() {
+  _serverLogCleared = true;
+  document.getElementById('server-log').innerHTML = '<div style="color:var(--muted)">(cleared)</div>';
+}
+
+let _serverLogCleared = false;
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Auto-refresh diag + log every 5 s
+setInterval(() => { refreshDiag(); if (!_serverLogCleared) refreshLog(); }, 5000);
+refreshDiag();
+refreshLog();
 
 async function ollamaStart() {
   const target = document.getElementById('ollama-target').value.trim();
@@ -586,6 +719,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json_response({"requests": reqs, "active": _ollama_monitor_active})
             return
 
+        if self.path == "/api/diag":
+            d = usb_diag()
+            drv = _driver
+            d["driver_type"] = type(drv).__name__
+            d["driver_initialized"] = getattr(drv, '_initialized', None)
+            d["driver_has_device"] = getattr(drv, 'device', None) is not None
+            d["bg_thread_alive"] = _bg_thread is not None and _bg_thread.is_alive()
+            self._json_response(d)
+            return
+
+        if self.path == "/api/log":
+            self._json_response({"log": list(_server_log)})
+            return
+
         # Ollama proxy (GET requests)
         if self.path.startswith("/ollama/"):
             self._proxy_ollama()
@@ -683,9 +830,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         if action == "restart":
+            _slog("[restart] starting hard reset...")
             drv = _restart_driver()
             ok = hasattr(drv, 'device') and drv.device is not None
-            self._json_response({"status": "Display restarted" if ok else "Reconnected (console only - no USB device found)"})
+            msg = "Display reset and ready" if ok else "Reset attempted — no USB device found (console-only mode)"
+            _slog(f"[restart] done: ok={ok}")
+            self._json_response({"status": msg, "usb_ok": ok})
+            return
+
+        if action == "force_reinit":
+            _slog("[force_reinit] starting...")
+            drv = _get_driver()
+            if hasattr(drv, 'force_reinit'):
+                ok = drv.force_reinit()
+            else:
+                ok = False
+            _slog(f"[force_reinit] done: ok={ok}")
+            self._json_response({"status": "Force reinit OK" if ok else "Force reinit failed (no USB device)", "usb_ok": ok})
+            return
+
+        if action == "sysfs_reset":
+            _slog("[sysfs_reset] attempting kernel USBDEVFS_RESET...")
+            result = sysfs_reset_usb()
+            _slog(f"[sysfs_reset] ioctl result: ok={result['ok']} method={result.get('method')} detail={result.get('detail')}")
+            if result["ok"]:
+                # Re-enumerate after successful sysfs reset
+                time.sleep(1.5)
+                _slog("[sysfs_reset] re-enumerating driver...")
+                drv = _restart_driver()
+                ok = hasattr(drv, 'device') and drv.device is not None
+                _slog(f"[sysfs_reset] driver ok={ok}")
+                result["driver_ok"] = ok
+                result["status"] = "USB reset OK, driver ready" if ok else "USB reset OK but driver still not found"
+            else:
+                result["status"] = f"sysfs reset failed: {result.get('detail', '')}"
+            self._json_response(result)
             return
 
         self._error_json(400, f"Unknown action: {action}")
