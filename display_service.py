@@ -43,9 +43,12 @@ def _sysfs_reset_sudo() -> dict:
     sysfs_path = None
     for dev in glob.glob("/sys/bus/usb/devices/*/idVendor"):
         try:
-            if open(dev).read().strip() == VID:
-                pid_file = dev.replace("idVendor", "idProduct")
-                if open(pid_file).read().strip() == PID:
+            with open(dev) as f:
+                if f.read().strip() != VID:
+                    continue
+            pid_file = dev.replace("idVendor", "idProduct")
+            with open(pid_file) as f:
+                if f.read().strip() == PID:
                     sysfs_path = os.path.dirname(dev)
                     break
         except OSError:
@@ -218,7 +221,7 @@ def _handle_action(action: str):  # noqa: C901
             )
 
         if result["ok"]:
-            time.sleep(1.5)
+            time.sleep(3.0)
             _ws._slog("[sysfs_reset] re-enumerating driver...")
             drv = _ws._restart_driver()
             ok = hasattr(drv, "device") and drv.device is not None

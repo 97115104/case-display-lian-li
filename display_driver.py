@@ -265,14 +265,13 @@ class UsbDisplayDriver(DisplayDriver):
                 self.device.reset()
             except Exception as e:
                 _log(f"[display] hard_reset: reset() raised {e}")
-            # Give the device a moment to recover after the reset signal.
             time.sleep(0.5)
 
         # Full resource release.
         self.close()
 
-        # Wait for the device to re-enumerate on the bus (up to 8 s).
-        deadline = time.time() + 8.0
+        # Wait for the device to re-enumerate on the bus (up to 10 s).
+        deadline = time.time() + 10.0
         dev = None
         while time.time() < deadline:
             dev = usb.core.find(idVendor=_DISPLAY_VID, idProduct=_DISPLAY_PID)
@@ -284,21 +283,36 @@ class UsbDisplayDriver(DisplayDriver):
             _log("[display] hard_reset: device did not re-enumerate via pyusb")
             return False
 
-        # Small extra settling delay.
-        time.sleep(1.0)
-        self._setup_usb()
-        if self.device is None:
-            _log("[display] hard_reset: _setup_usb failed after re-enumeration")
-            return False
+        # The display firmware needs significant time to boot after USB reset.
+        _log("[display] hard_reset: device found, waiting for firmware...")
+        time.sleep(3.0)
 
-        try:
-            self._init_display()
-        except Exception as e:
-            _log(f"[display] hard_reset: _init_display raised {e}")
-            return False
+        # Try setup + init with retries (firmware may not be ready immediately).
+        for attempt in range(3):
+            self._setup_usb()
+            if self.device is None:
+                _log(f"[display] hard_reset: _setup_usb failed (attempt {attempt + 1}/3)")
+                time.sleep(2.0)
+                continue
 
-        _log("[display] hard_reset: device ready")
-        return True
+            if not self._verify_endpoints():
+                _log(f"[display] hard_reset: endpoints not functional (attempt {attempt + 1}/3)")
+                self.close()
+                time.sleep(2.0)
+                continue
+
+            try:
+                self._init_display()
+                _log("[display] hard_reset: device ready")
+                return True
+            except Exception as e:
+                _log(f"[display] hard_reset: _init_display raised {e} (attempt {attempt + 1}/3)")
+                self._initialized = False
+                self.close()
+                time.sleep(2.0)
+
+        _log("[display] hard_reset: all attempts exhausted")
+        return False
 
     def _setup_usb(self) -> None:
         import usb.core
@@ -363,12 +377,21 @@ class UsbDisplayDriver(DisplayDriver):
 
         self.device = dev
 
+    def _verify_endpoints(self) -> bool:
+        """Verify USB endpoints are functional with a test control transfer."""
+        if self.device is None or self.ep_out is None or self.ep_in is None:
+            return False
+        try:
+            self.device.ctrl_transfer(0x80, 0x00, 0, 0, 2)
+            return True
+        except Exception:
+            return False
+
     def _ensure_connected(self) -> bool:
         """Check the USB session is still alive, reconnect if needed."""
         if self.device is None:
             return False
         try:
-            # Lightweight probe: read device status (control transfer).
             self.device.ctrl_transfer(0x80, 0x00, 0, 0, 2)
             return True
         except Exception:
@@ -376,18 +399,30 @@ class UsbDisplayDriver(DisplayDriver):
         # Connection is stale -- try to re-establish.
         _log("[display] USB session lost, reconnecting...")
         self.close()
-        time.sleep(0.5)
+        time.sleep(1.0)
         self._setup_usb()
         connected = self.device is not None
         _log(f"[display] reconnect {'succeeded' if connected else 'failed'}")
         return connected
 
     def _send_cmd(self, payload: bytes) -> None:
-        self.ep_out.write(payload, timeout=200)
-        try:
-            self.ep_in.read(512, timeout=200)
-        except Exception:
-            pass
+        for attempt in range(3):
+            try:
+                self.ep_out.write(payload, timeout=500)
+                try:
+                    self.ep_in.read(512, timeout=500)
+                except Exception:
+                    pass
+                return
+            except Exception:
+                if attempt < 2:
+                    try:
+                        self.ep_out.clear_halt()
+                    except Exception:
+                        pass
+                    time.sleep(0.2)
+                else:
+                    raise
 
     def _push_chunked(self, payload: bytes) -> None:
         for i in range(0, len(payload), _CHUNK_SIZE):
@@ -408,17 +443,19 @@ class UsbDisplayDriver(DisplayDriver):
     def _init_display(self) -> None:
         if self._initialized:
             return
+        _log("[display] running init sequence...")
         self._send_cmd(_build_rotate(0))
-        time.sleep(0.1)
+        time.sleep(0.15)
         self._send_cmd(_build_clock(is_stop=False))
-        time.sleep(0.1)
+        time.sleep(0.15)
         self._send_cmd(_build_clock(is_stop=True))
-        time.sleep(0.2)
+        time.sleep(0.3)
         self._push_chunked(_build_png_packet(_make_blank_png()))
-        time.sleep(0.1)
+        time.sleep(0.15)
         self._push_chunked(_build_jpeg_packet(_make_blank_jpeg()))
-        time.sleep(0.1)
+        time.sleep(0.15)
         self._initialized = True
+        _log("[display] init sequence complete")
 
     def write_frame(self, lines: Iterable[str]) -> None:
         lines_list = list(lines)
@@ -487,13 +524,17 @@ def usb_diag() -> dict:
         for name in sorted(os.listdir(sysfs_base)):
             path = os.path.join(sysfs_base, name)
             try:
-                vid = open(os.path.join(path, "idVendor")).read().strip()
-                pid = open(os.path.join(path, "idProduct")).read().strip()
+                with open(os.path.join(path, "idVendor")) as f:
+                    vid = f.read().strip()
+                with open(os.path.join(path, "idProduct")) as f:
+                    pid = f.read().strip()
                 if vid == vid_str and pid == pid_str:
                     info["sysfs_path"] = path
                     try:
-                        busnum = int(open(os.path.join(path, "busnum")).read())
-                        devnum = int(open(os.path.join(path, "devnum")).read())
+                        with open(os.path.join(path, "busnum")) as f:
+                            busnum = int(f.read())
+                        with open(os.path.join(path, "devnum")) as f:
+                            devnum = int(f.read())
                         dev_path = f"/dev/bus/usb/{busnum:03d}/{devnum:03d}"
                         info["dev_path"] = dev_path
                         info["dev_writable"] = os.access(dev_path, os.W_OK)
