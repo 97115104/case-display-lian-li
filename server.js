@@ -109,7 +109,7 @@ app.post('/api/display', async (req, res) => {
 app.post('/api/action', async (req, res) => {
   const { action } = req.body || {};
   if (!action) return jsonErr(res, 400, 'Missing action');
-  try { res.json(await display.send('action', { action })); }
+  try { res.json(await display.send('action', req.body)); }
   catch (e) { jsonErr(res, 500, e.message); }
 });
 

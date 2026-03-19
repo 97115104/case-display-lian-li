@@ -1,4 +1,4 @@
-# LANCOOL 207 Digital -- Linux LCD Driver
+# LANCOOL 207 Digital — Linux LCD Driver
 
 Drive the 6" LCD display inside the Lian Li LANCOOL 207 Digital case from Linux.
 
@@ -7,20 +7,38 @@ by [deyloop](https://github.com/deyloop/lianli_207_lcd).
 
 ## Hardware
 
-- Display: 6" LCD, 720x1472 (portrait), 60Hz, 500 nits
+- Display: 6" LCD, 720×1472 (portrait), 60 Hz, 500 nits
 - USB device: `1cbe:f000` (Luminary Micro / USB-Daemon)
-- Protocol: DES-CBC encrypted bulk USB transfers
+- Protocol: DES-CBC encrypted bulk USB transfers (key/IV: `slv3tuzx`)
 - Connection: Type-A USB cable from the case
+
+## Architecture
+
+```
+Browser ──► Express (server.js :8008) ──► Python subprocess (display_service.py)
+                │                                 │
+                ├─ static files (public/)          ├─ display_web_server.py (state + rendering)
+                └─ Ollama reverse proxy            └─ display_driver.py (USB protocol)
+```
+
+Node.js serves the web UI and proxies Ollama. A persistent Python child process
+handles all USB communication and LCD rendering via JSON-over-stdin/stdout IPC.
 
 ## Setup
 
 ```sh
+# Python dependencies
 python3 -m venv .venv
 .venv/bin/pip install pyusb Pillow pycryptodome
-sudo ./setup-udev.sh          # allow non-root USB access
+
+# Node dependencies
+npm install
+
+# USB permissions (non-root access)
+sudo ./setup-udev.sh
 ```
 
-On Arch-based distros (CachyOS, etc.) you also need:
+On Arch-based distros (CachyOS, etc.):
 
 ```sh
 sudo pacman -S libusb
@@ -28,29 +46,31 @@ sudo pacman -S libusb
 
 ## Usage
 
-### Quick test
-
-```sh
-./test-locally.sh hello
-```
-
-Sends a "Hello World" image to the LCD.
-
-### Dashboard (web UI)
+### Web dashboard
 
 ```sh
 ./display-screen.sh
 ```
 
-Opens a web dashboard at `http://localhost:8008` where you can:
+Opens the dashboard at `http://localhost:8008`. Type commands in the command bar:
 
-- Send custom text to the LCD
-- Run the repeat, dictionary, or hello modes
-- Monitor Ollama API requests in real-time on the LCD
+| Command | Effect |
+|---------|--------|
+| `hello` | Send "Hello World" to the LCD |
+| `dictionary` | Cycle random esoteric words (high-contrast) |
+| `pictures /path/to/dir` | Slideshow of images from a directory |
+| `pictures /path 10` | Slideshow with 10-second interval |
+| `ollama` | Start Ollama API request monitor |
+| `stop` | Stop the current display mode |
+| `restart` | Hard-reset the USB display |
+| `reinit` | Force re-initialize the driver |
+| `usb_reset` | Kernel-level sysfs USB reset |
+| *anything else* | Display that text on the LCD |
 
-### Other commands
+### Quick CLI test
 
 ```sh
+./test-locally.sh hello
 ./test-locally.sh repeat --text "Hello" --interval 2
 ./test-locally.sh dictionary --interval 5
 ```
@@ -59,73 +79,46 @@ Opens a web dashboard at `http://localhost:8008` where you can:
 
 | File | Description |
 |------|-------------|
-| display_driver.py | Core USB driver (DES-CBC protocol) |
-| display_web_server.py | Web dashboard server with Ollama monitor |
-| display_runner.py | CLI runner (repeat / dictionary modes) |
-| hello_lcd.py | Standalone "Hello World" sender |
-| display-screen.sh | Launch the web dashboard |
-| test-locally.sh | CLI entry point for all commands |
-| setup-udev.sh | Install udev rule for non-root access |
+| `server.js` | Express server — static files, API routes, Ollama proxy |
+| `public/index.html` | Web dashboard (VS Code Dark High Contrast theme) |
+| `display_service.py` | Persistent Python subprocess — JSON IPC handler |
+| `display_web_server.py` | Display state, LCD renderers (Ollama, dictionary, pictures) |
+| `display_driver.py` | Core USB driver (DES-CBC protocol, JPEG/PNG transfer) |
+| `display_runner.py` | CLI runner (repeat / dictionary modes) + word list |
+| `hello_lcd.py` | Standalone "Hello World" sender |
+| `display-screen.sh` | Launch script for the web dashboard |
+| `test-locally.sh` | CLI entry point for quick tests |
+| `setup-udev.sh` | Install udev rule for non-root USB access |
+| `reset-display.sh` | Escalating USB reset (unbind → autoreset → power cycle) |
+| `package.json` | Node.js dependencies (express, nodemon) |
 
 ## Protocol summary
 
-Commands are sent as 500-byte headers, DES-CBC encrypted (key/IV: `slv3tuzx`),
-padded to 512 bytes with trailer `0xA1 0x1A`. Image data is appended after the
-header and sent in 4096-byte chunks, followed by a StartPlay (0x79) command.
+Commands are sent as 500-byte headers, DES-CBC encrypted, padded to 512 bytes
+with trailer `0xA1 0x1A`. Image data follows the header in 4096-byte chunks,
+then a StartPlay (`0x79`) command triggers display.
 
 | Command | Byte | Description |
 |---------|------|-------------|
-| Rotate | 0x0D | Set display rotation |
-| SyncClock | 0x33 | Set RTC time |
-| StopClock | 0x34 | Stop RTC |
-| JPEG | 0x65 | Send JPEG background (1472x720, rotated -90) |
-| PNG | 0x66 | Send PNG overlay |
-| StartPlay | 0x79 | Begin displaying the sent image |
+| Rotate | `0x0D` | Set display rotation |
+| SyncClock | `0x33` | Set RTC time |
+| StopClock | `0x34` | Stop RTC |
+| JPEG | `0x65` | Send JPEG background (1472×720, rotated −90°) |
+| PNG | `0x66` | Send PNG overlay |
+| StartPlay | `0x79` | Begin displaying the sent image |
+
+## Troubleshooting
+
+If you see `Resource busy` or `USB device busy`:
+
+```sh
+# Unbind the kernel driver (replace 3-2.3 with your device path)
+sudo sh -c 'echo 3-2.3 > /sys/bus/usb/drivers/usb/unbind'
+```
+
+Or use the web dashboard's **USB Reset** / **Restart** commands, which handle
+this automatically.
 
 ## License
 
 MIT
-
-- This script is *not* yet a full working display driver; it is a framework to locate the device and send commands once the protocol is known.
-
----
-
-If you run the script and share any additional device output (especially `lsusb -v` for the device), I can help reverse-engineer the packet format so the display actually shows text.
-
-## Granting access to the display on Linux
-
-The device is a vendor-specific USB device, so standard non-root users cannot open it by default. You can either run the display scripts with `sudo` or add a udev rule.
-
-To add a udev rule (recommended):
-
-```sh
-sudo ./setup-udev.sh
-```
-
-Then reconnect the display (unplug/replug the USB cable) or reboot.
-
-After that, run:
-
-```sh
-./test-locally.sh repeat --text "Hello" --interval 2
-```
-
-If you see an error like `Resource busy` or `USB device busy`, it usually means the kernel / another process has the device claimed. You can unbind it (as root) like this:
-
-```sh
-# Replace the device string with the one matching your system (lsusb shows Bus/Device)
-sudo sh -c 'echo 3-2.3 > /sys/bus/usb/drivers/usb/unbind'
-```
-
-Then retry running the demo (or run it as root to avoid permission issues):
-
-```sh
-sudo ./test-locally.sh repeat --text "Hello" --interval 2
-```
-
-If it still doesn't work, share the output of the probe command again:
-
-```sh
-./lianli_display_probe.py scan
-./lianli_display_probe.py info --vid 0x1cbe --pid 0xf000
-```

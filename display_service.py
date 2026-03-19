@@ -106,7 +106,7 @@ def _dispatch(cmd: str, args: dict):  # noqa: C901
 
     # ── action ─────────────────────────────────────────────────────────────
     if cmd == "action":
-        return _handle_action(args.get("action", ""))
+        return _handle_action(args)
 
     # ── diag ───────────────────────────────────────────────────────────────
     if cmd == "diag":
@@ -153,9 +153,10 @@ def _dispatch(cmd: str, args: dict):  # noqa: C901
     raise ValueError(f"Unknown command: {cmd!r}")
 
 
-def _handle_action(action: str):  # noqa: C901
-    import random
+def _handle_action(args: dict):  # noqa: C901
     import subprocess
+
+    action = args.get("action", "")
 
     if action == "hello":
         _ws._stop_background()
@@ -169,17 +170,29 @@ def _handle_action(action: str):  # noqa: C901
 
     if action == "dictionary":
         _ws._stop_background()
-        from display_runner import ESOTERIC_WORDS
-
-        def _dict_loop():
-            driver = _ws._get_driver()
-            while not _ws._bg_stop.is_set():
-                word, defn = random.choice(list(ESOTERIC_WORDS.items()))
-                show_text(f"{word}\n{defn}", driver=driver)
-                _ws._bg_stop.wait(timeout=4)
-
-        _ws._run_in_background(_dict_loop)
+        _ws._run_in_background(_ws._dictionary_display_loop)
         return {"status": "Dictionary mode started"}
+
+    if action == "pictures":
+        image_dir = args.get("dir", "")
+        interval = float(args.get("interval", 5))
+        if not image_dir or not os.path.isdir(image_dir):
+            return {"status": f"Directory not found: {image_dir}", "error": True}
+        _ws._stop_background()
+
+        def _pics():
+            _ws._pictures_display_loop(image_dir, interval)
+
+        _ws._run_in_background(_pics)
+        return {"status": f"Slideshow started: {image_dir} ({interval}s)"}
+
+    if action == "text":
+        text = args.get("text", "").strip()
+        if not text:
+            return {"status": "No text provided", "error": True}
+        _ws._stop_background()
+        show_text(text, driver=_ws._get_driver())
+        return {"status": f"Displayed: {text}"}
 
     if action == "stop":
         _ws._stop_background()

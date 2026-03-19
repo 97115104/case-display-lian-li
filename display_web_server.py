@@ -287,3 +287,177 @@ def _ollama_display_loop():
             print(f"[ollama-monitor] render error: {e}", file=sys.stderr)
         _bg_stop.wait(timeout=1.5)
 
+
+# ── Dictionary rendering (high contrast) ────────────────────────────────────
+
+def _render_dictionary_jpeg(word: str, definition: str) -> bytes:
+    """Render a dictionary word + definition in high-contrast style."""
+    from PIL import Image, ImageDraw, ImageFont
+    import textwrap
+
+    canvas_w, canvas_h = DISPLAY_W, DISPLAY_H
+    img = Image.new('RGB', (canvas_w, canvas_h), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # Load fonts
+    font_word = font_def = font_small = None
+    bold_paths = [
+        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSansMono-Bold.ttf",
+    ]
+    regular_paths = [
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSansMono.ttf",
+    ]
+    for p in bold_paths:
+        try:
+            font_word = ImageFont.truetype(p, 56)
+            font_small = ImageFont.truetype(p, 28)
+            break
+        except (IOError, OSError):
+            continue
+    for p in regular_paths:
+        try:
+            font_def = ImageFont.truetype(p, 32)
+            break
+        except (IOError, OSError):
+            continue
+    if font_word is None:
+        font_word = ImageFont.load_default()
+    if font_def is None:
+        font_def = ImageFont.load_default()
+    if font_small is None:
+        font_small = ImageFont.load_default()
+
+    pad = 40
+    cyan = (111, 195, 223)
+    white = (255, 255, 255)
+    muted = (153, 153, 153)
+
+    # Top accent line
+    draw.rectangle([0, 0, canvas_w, 4], fill=cyan)
+
+    # Word
+    y = pad + 20
+    draw.text((pad, y), word.upper(), font=font_word, fill=cyan)
+    word_bbox = draw.textbbox((pad, y), word.upper(), font=font_word)
+    y = word_bbox[3] + 16
+
+    # Divider line
+    draw.rectangle([pad, y, canvas_w - pad, y + 2], fill=(68, 68, 68))
+    y += 24
+
+    # Definition (word-wrapped)
+    max_chars = 50
+    wrapped = textwrap.wrap(definition, width=max_chars)
+    for line in wrapped:
+        if y > canvas_h - 60:
+            break
+        draw.text((pad, y), line, font=font_def, fill=white)
+        y += 44
+
+    # Bottom accent
+    draw.rectangle([0, canvas_h - 4, canvas_w, canvas_h], fill=cyan)
+
+    # "DICTIONARY" label bottom-right
+    label = "DICTIONARY"
+    lbox = draw.textbbox((0, 0), label, font=font_small)
+    draw.text((canvas_w - pad - (lbox[2] - lbox[0]), canvas_h - 50),
+              label, font=font_small, fill=muted)
+
+    img = img.rotate(-90, expand=True)
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=92)
+    return buf.getvalue()
+
+
+def _dictionary_display_loop():
+    """Background loop showing random dictionary words in high-contrast style."""
+    import random
+    from display_runner import ESOTERIC_WORDS
+
+    driver = _get_driver()
+    while not _bg_stop.is_set():
+        try:
+            word, defn = random.choice(list(ESOTERIC_WORDS.items()))
+            jpg = _render_dictionary_jpeg(word, defn)
+            if hasattr(driver, 'send_jpeg'):
+                driver.send_jpeg(jpg)
+            else:
+                driver.write_frame([f"{word}: {defn}"])
+        except Exception as e:
+            print(f"[dictionary] render error: {e}", file=sys.stderr)
+        _bg_stop.wait(timeout=4)
+
+
+# ── Picture slideshow ────────────────────────────────────────────────────────
+
+def _render_picture_jpeg(image_path: str) -> bytes:
+    """Load an image, fit it to the display, and return JPEG bytes."""
+    from PIL import Image
+
+    canvas_w, canvas_h = DISPLAY_W, DISPLAY_H
+    img = Image.open(image_path)
+    img = img.convert('RGB')
+
+    # Fit image to display (cover with center crop)
+    iw, ih = img.size
+    target_ratio = canvas_w / canvas_h
+    img_ratio = iw / ih
+
+    if img_ratio > target_ratio:
+        # Image is wider: crop sides
+        new_w = int(ih * target_ratio)
+        left = (iw - new_w) // 2
+        img = img.crop((left, 0, left + new_w, ih))
+    else:
+        # Image is taller: crop top/bottom
+        new_h = int(iw / target_ratio)
+        top = (ih - new_h) // 2
+        img = img.crop((0, top, iw, top + new_h))
+
+    img = img.resize((canvas_w, canvas_h), Image.LANCZOS)
+    img = img.rotate(-90, expand=True)
+
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=92)
+    return buf.getvalue()
+
+
+def _pictures_display_loop(image_dir: str, interval: float = 5.0):
+    """Background loop that rotates through images in a directory."""
+    import os
+    import random
+
+    EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff'}
+
+    images = []
+    for entry in os.listdir(image_dir):
+        ext = os.path.splitext(entry)[1].lower()
+        if ext in EXTENSIONS:
+            images.append(os.path.join(image_dir, entry))
+
+    if not images:
+        _slog(f"[pictures] no images found in {image_dir}")
+        return
+
+    random.shuffle(images)
+    _slog(f"[pictures] loaded {len(images)} images from {image_dir}")
+
+    driver = _get_driver()
+    idx = 0
+    while not _bg_stop.is_set():
+        path = images[idx % len(images)]
+        try:
+            jpg = _render_picture_jpeg(path)
+            if hasattr(driver, 'send_jpeg'):
+                driver.send_jpeg(jpg)
+            else:
+                driver.write_frame([f"[Picture: {os.path.basename(path)}]"])
+        except Exception as e:
+            _slog(f"[pictures] error rendering {path}: {e}")
+        idx += 1
+        _bg_stop.wait(timeout=interval)
+

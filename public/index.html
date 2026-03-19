@@ -3,254 +3,442 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LANCOOL 207 LCD Dashboard</title>
+<title>LANCOOL 207 LCD</title>
 <style>
   :root {
-    --bg: #0d0f1a; --surface: #161929; --border: #232840;
-    --text: #e0e0e8; --muted: #6b7094; --accent: #4ea4f6;
-    --green: #50dc82; --red: #f25f5c; --orange: #f2a65a;
+    --bg: #000000;
+    --surface: #0a0a0a;
+    --border: #6fc3df;
+    --text: #ffffff;
+    --muted: #999999;
+    --accent: #6fc3df;
+    --green: #73c991;
+    --red: #f48771;
+    --yellow: #cca700;
+    --orange: #e8ab53;
+    --cyan: #6fc3df;
+    --purple: #c586c0;
+    --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
   }
-  * { margin:0; padding:0; box-sizing:border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     background: var(--bg); color: var(--text);
-    min-height: 100vh; padding: 2rem;
+    min-height: 100vh;
   }
-  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: .3rem; }
-  .subtitle { color: var(--muted); font-size: .85rem; margin-bottom: 2rem; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 900px; }
-  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 1.4rem;
+
+  /* ── Header ─────────────────────────────────────────────────── */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.5rem;
+    display: flex; align-items: center; gap: 1rem;
   }
-  .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; color: var(--accent); }
-  label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .3rem; margin-top: .8rem; }
-  label:first-child { margin-top: 0; }
-  input, textarea {
-    width: 100%; padding: .55rem .7rem; font-size: .85rem;
-    background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; outline: none; font-family: 'JetBrains Mono', monospace;
+  .header h1 {
+    font-size: 1rem; font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--cyan);
+    white-space: nowrap;
   }
-  input:focus, textarea:focus { border-color: var(--accent); }
-  textarea { height: 5rem; resize: vertical; }
-  .btn {
-    display: inline-block; padding: .55rem 1.2rem; margin-top: .8rem;
-    font-size: .85rem; font-weight: 600; border: none; border-radius: 8px;
-    cursor: pointer; transition: opacity .15s;
+  .header .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); flex-shrink: 0;
   }
-  .btn:hover { opacity: .85; }
-  .btn-blue   { background: var(--accent);  color: #fff; }
-  .btn-green  { background: var(--green);   color: #111; }
-  .btn-orange { background: var(--orange);  color: #111; }
-  .btn-red    { background: var(--red);     color: #fff; }
-  .btn-sm     { padding: .4rem .9rem; font-size: .8rem; }
-  .status {
-    margin-top: .6rem; font-size: .8rem; color: var(--muted);
-    min-height: 1.2rem; font-family: monospace;
+  .header .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  /* ── Command Bar ────────────────────────────────────────────── */
+  .cmd-bar {
+    border-bottom: 1px solid #333;
+    padding: 0.75rem 1.5rem;
+    display: flex; align-items: center; gap: 0.5rem;
+    background: var(--surface);
   }
-  .status.ok  { color: var(--green); }
-  .status.err { color: var(--red);   }
+  .cmd-bar .prompt {
+    color: var(--cyan); font-family: var(--font-mono);
+    font-size: 0.9rem; font-weight: 700; flex-shrink: 0;
+    user-select: none;
+  }
+  .cmd-bar input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font-family: var(--font-mono); font-size: 0.9rem;
+    caret-color: var(--cyan);
+  }
+  .cmd-bar input::placeholder { color: #555; }
+  .cmd-bar .hint {
+    color: #555; font-size: 0.75rem; font-family: var(--font-mono);
+    white-space: nowrap; flex-shrink: 0;
+  }
+
+  /* ── Status line ────────────────────────────────────────────── */
+  .status-line {
+    border-bottom: 1px solid #222;
+    padding: 0.4rem 1.5rem;
+    font-family: var(--font-mono); font-size: 0.8rem;
+    color: var(--muted); min-height: 2rem;
+    display: flex; align-items: center;
+  }
+  .status-line.ok { color: var(--green); }
+  .status-line.err { color: var(--red); }
+
+  /* ── Main content ───────────────────────────────────────────── */
+  .main { padding: 1.5rem; max-width: 960px; }
+
+  /* ── Section ────────────────────────────────────────────────── */
+  .section {
+    border: 1px solid #333; margin-bottom: 1rem;
+  }
+  .section-header {
+    padding: 0.6rem 1rem;
+    background: #0d0d0d;
+    border-bottom: 1px solid #333;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .section-header:hover { background: #151515; }
+  .section-header h2 {
+    font-size: 0.85rem; font-weight: 600;
+    font-family: var(--font-mono); color: var(--cyan);
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .section-header .chevron {
+    color: var(--muted); font-size: 0.75rem; transition: transform 0.15s;
+  }
+  .section-header.collapsed .chevron { transform: rotate(-90deg); }
+  .section-body { padding: 1rem; }
+  .section-header.collapsed + .section-body { display: none; }
+
+  /* ── Quick commands grid ────────────────────────────────────── */
+  .cmd-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.5rem;
+  }
+  .cmd-btn {
+    padding: 0.5rem 0.75rem; border: 1px solid #444;
+    background: #0d0d0d; color: var(--text);
+    font-family: var(--font-mono); font-size: 0.8rem;
+    cursor: pointer; text-align: left;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .cmd-btn:hover { border-color: var(--cyan); background: #111; }
+  .cmd-btn .cmd-name { color: var(--cyan); font-weight: 600; }
+  .cmd-btn .cmd-desc {
+    color: var(--muted); font-size: 0.7rem; margin-top: 0.2rem;
+    font-family: var(--font-sans);
+  }
+
+  /* ── Log box ────────────────────────────────────────────────── */
   .log-box {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: .7rem; margin-top: .8rem; max-height: 300px; overflow-y: auto;
-    font-family: 'JetBrains Mono', monospace; font-size: .75rem; line-height: 1.5;
+    background: #050505; border: 1px solid #333;
+    padding: 0.5rem; max-height: 300px; overflow-y: auto;
+    font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6;
   }
-  .log-entry { padding: .25rem 0; border-bottom: 1px solid var(--border); }
+  .log-entry {
+    padding: 0.15rem 0.4rem;
+    border-bottom: 1px solid #1a1a1a;
+  }
   .log-entry:last-child { border-bottom: none; }
-  .log-method { font-weight: 700; }
-  .log-method.POST  { color: var(--green); }
-  .log-method.GET   { color: var(--accent); }
-  .log-ip    { color: var(--orange); }
-  .log-model { color: #c792ea; }
-  .log-status { font-weight: 600; }
-  .log-status.ok  { color: var(--green); }
-  .log-status.err { color: var(--red);   }
-  .log-time  { color: var(--muted); }
-  .wide { grid-column: 1 / -1; }
-  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: end; }
-  .row > * { flex: 1; min-width: 120px; }
-  .indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; }
-  .indicator.on  { background: var(--green); box-shadow: 0 0 6px var(--green); }
-  .indicator.off { background: var(--muted); }
+  .log-entry:hover { background: #111; }
+
+  /* ── Diag ───────────────────────────────────────────────────── */
+  .diag-pre {
+    background: #050505; border: 1px solid #333;
+    padding: 0.75rem; font-family: var(--font-mono);
+    font-size: 0.75rem; line-height: 1.8;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .diag-row { display: flex; gap: 0.5rem; }
+  .diag-key { color: var(--cyan); min-width: 180px; }
+  .diag-val { color: var(--text); }
+  .diag-val.true { color: var(--green); }
+  .diag-val.false { color: var(--red); }
+
+  /* ── Shared form elements ───────────────────────────────────── */
+  .config-row {
+    display: flex; gap: 0.5rem; align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .config-row input {
+    flex: 1; padding: 0.4rem 0.6rem;
+    background: #050505; color: var(--text);
+    border: 1px solid #444; font-family: var(--font-mono);
+    font-size: 0.8rem; outline: none;
+  }
+  .config-row input:focus { border-color: var(--cyan); }
+  .small-btn {
+    padding: 0.4rem 0.8rem; border: 1px solid #444;
+    background: #0d0d0d; color: var(--text);
+    font-family: var(--font-mono); font-size: 0.75rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  .small-btn:hover { border-color: var(--cyan); }
+  .small-btn.active { border-color: var(--green); color: var(--green); }
+  .small-btn.danger { border-color: var(--red); color: var(--red); }
+  .small-btn.danger:hover { background: #1a0505; }
+  .sub-status {
+    font-family: var(--font-mono); font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  /* ── Scrollbar ──────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0a0a0a; }
+  ::-webkit-scrollbar-thumb { background: #333; }
+  ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+  /* ── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 600px) {
+    .cmd-grid { grid-template-columns: 1fr 1fr; }
+    .config-row { flex-direction: column; }
+  }
 </style>
 </head>
 <body>
-<h1>LANCOOL 207 LCD Dashboard</h1>
-<p class="subtitle">Lian Li LANCOOL 207 Digital &mdash; LCD Control Panel</p>
 
-<div class="grid">
+<!-- Header -->
+<div class="header">
+  <span class="dot" id="usb-dot"></span>
+  <h1>LANCOOL 207 LCD</h1>
+</div>
 
-  <!-- Send Text -->
-  <div class="card">
-    <h2>Send Text</h2>
-    <label for="text-input">Message</label>
-    <textarea id="text-input" placeholder="Hello World!">Hello World!</textarea>
-    <button class="btn btn-blue" onclick="sendText()">Send to LCD</button>
-    <div class="status" id="text-status"></div>
-  </div>
+<!-- Command Bar -->
+<div class="cmd-bar">
+  <span class="prompt">&gt;</span>
+  <input id="cmd-input" type="text" placeholder="Type a command... (hello, dictionary, restart, stop, pictures /path, ollama)" autofocus autocomplete="off" spellcheck="false">
+  <span class="hint">Enter to run</span>
+</div>
 
-  <!-- Quick Actions -->
-  <div class="card">
-    <h2>Quick Actions</h2>
-    <p style="font-size:.8rem;color:var(--muted);margin-bottom:.8rem">
-      Run built-in display modes. Each mode takes over the LCD until stopped.
-    </p>
-    <button class="btn btn-green  btn-sm" onclick="runAction('hello')">Hello World</button>
-    <button class="btn btn-blue   btn-sm" onclick="runAction('dictionary')">Random Words</button>
-    <button class="btn btn-red    btn-sm" onclick="runAction('stop')">Stop</button>
-    <button class="btn btn-orange btn-sm" onclick="runAction('restart')" style="margin-left:.5rem">Soft Reset</button>
-    <hr style="border-color:var(--border);margin:.8rem 0">
-    <p style="font-size:.75rem;color:var(--muted);margin-bottom:.5rem">Advanced recovery:</p>
-    <button class="btn btn-orange btn-sm" onclick="runAction('force_reinit')" title="Re-run display init without USB reset">Force Reinit</button>
-    <button class="btn btn-red    btn-sm" onclick="doSysfsReset()" title="Kernel-level USBDEVFS_RESET ioctl (most reliable)">USB Sysfs Reset</button>
-    <div class="status" id="action-status"></div>
-  </div>
+<!-- Status Line -->
+<div class="status-line" id="status-line">Ready</div>
 
-  <!-- Test Ollama Request -->
-  <div class="card wide">
-    <h2>Test Ollama Request</h2>
-    <p style="font-size:.8rem;color:var(--muted);margin-bottom:.8rem">
-      Send a test request through the proxy to verify Ollama is reachable.
-      The request will appear in the monitor log below.
-    </p>
-    <div class="row">
-      <div style="flex:0 0 180px">
-        <label for="test-model">Model</label>
-        <input id="test-model" placeholder="e.g. llama3" value="llama3">
+<div class="main">
+
+  <!-- Quick Commands -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <h2><span class="chevron">&#9660;</span> Commands</h2>
+    </div>
+    <div class="section-body">
+      <div class="cmd-grid">
+        <button class="cmd-btn" onclick="runCmd('hello')">
+          <div class="cmd-name">hello</div>
+          <div class="cmd-desc">Hello World demo</div>
+        </button>
+        <button class="cmd-btn" onclick="runCmd('dictionary')">
+          <div class="cmd-name">dictionary</div>
+          <div class="cmd-desc">Random words</div>
+        </button>
+        <button class="cmd-btn" onclick="runCmd('stop')">
+          <div class="cmd-name">stop</div>
+          <div class="cmd-desc">Stop current mode</div>
+        </button>
+        <button class="cmd-btn" onclick="runCmd('restart')">
+          <div class="cmd-name">restart</div>
+          <div class="cmd-desc">Soft USB reset</div>
+        </button>
+        <button class="cmd-btn" onclick="runCmd('force_reinit')">
+          <div class="cmd-name">reinit</div>
+          <div class="cmd-desc">Force re-init display</div>
+        </button>
+        <button class="cmd-btn" onclick="runCmd('sysfs_reset')">
+          <div class="cmd-name">usb_reset</div>
+          <div class="cmd-desc">Kernel USB reset</div>
+        </button>
       </div>
-      <div>
-        <label for="test-prompt">Prompt</label>
-        <input id="test-prompt" value="Say hello in one sentence.">
-      </div>
-    </div>
-    <div style="display:flex;gap:.6rem;margin-top:.8rem;flex-wrap:wrap">
-      <button class="btn btn-green btn-sm" onclick="testOllamaGenerate()">Send Generate</button>
-      <button class="btn btn-blue  btn-sm" onclick="testOllamaTags()">List Models (/api/tags)</button>
-    </div>
-    <div class="status" id="test-status"></div>
-    <pre id="test-response" style="
-      margin-top:.6rem; background:var(--bg); border:1px solid var(--border);
-      border-radius:8px; padding:.7rem; font-size:.72rem; line-height:1.5;
-      max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all;
-      display:none;
-    "></pre>
-  </div>
-
-  <!-- Diagnostics -->
-  <div class="card wide">
-    <h2>USB Diagnostics &amp; Server Log</h2>
-    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
-      <button class="btn btn-blue   btn-sm" onclick="refreshDiag()">Refresh Diag</button>
-      <button class="btn btn-blue   btn-sm" onclick="refreshLog()">Refresh Log</button>
-      <button class="btn btn-orange btn-sm" onclick="clearLog()">Clear Log</button>
-    </div>
-    <div id="diag-info" style="
-      background:var(--bg); border:1px solid var(--border); border-radius:8px;
-      padding:.7rem; font-size:.75rem; font-family:monospace; line-height:1.8;
-      margin-bottom:.6rem; white-space:pre-wrap; word-break:break-all;
-    ">Click &lsquo;Refresh Diag&rsquo; to load USB status.</div>
-    <div style="font-size:.8rem;color:var(--muted);margin-bottom:.3rem">Server log (newest first):</div>
-    <div class="log-box" id="server-log" style="max-height:220px">
-      <div style="color:var(--muted)">No log entries yet.</div>
     </div>
   </div>
 
   <!-- Ollama Monitor -->
-  <div class="card wide">
-    <h2><span class="indicator off" id="ollama-dot"></span>Ollama Request Monitor</h2>
-    <p style="font-size:.8rem;color:var(--muted);margin-bottom:.8rem">
-      Proxies requests to Ollama and displays them on the LCD in real time.
-      Point your clients at <code style="color:var(--accent)">http://&lt;this-host&gt;:8008/ollama/</code>
-    </p>
-    <div class="row">
-      <div>
-        <label for="ollama-target">Ollama server URL</label>
-        <input id="ollama-target" value="http://localhost:11434" placeholder="http://localhost:11434">
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <h2><span class="chevron">&#9660;</span> Ollama Monitor <span class="dot" id="ollama-dot" style="margin-left:0.5rem"></span></h2>
+    </div>
+    <div class="section-body">
+      <div class="config-row">
+        <input id="ollama-target" value="http://localhost:11434" placeholder="Ollama server URL">
+        <button class="small-btn" onclick="ollamaStart()" id="ollama-start-btn">Start</button>
+        <button class="small-btn danger" onclick="ollamaStop()">Stop</button>
       </div>
-      <div style="flex:0 0 auto">
-        <button class="btn btn-green btn-sm" onclick="ollamaStart()">Start Monitor</button>
-        <button class="btn btn-red   btn-sm" onclick="ollamaStop()">Stop</button>
+      <div class="log-box" id="ollama-log" style="max-height:200px">
+        <div style="color:var(--muted)">Monitor not active. Type <span style="color:var(--cyan)">ollama</span> or click Start.</div>
       </div>
     </div>
-    <div class="status" id="ollama-status"></div>
-    <div class="log-box" id="ollama-log">
-      <div style="color:var(--muted)">No requests yet.</div>
+  </div>
+
+  <!-- Pictures Slideshow -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <h2><span class="chevron">&#9660;</span> Picture Slideshow</h2>
+    </div>
+    <div class="section-body">
+      <div class="config-row">
+        <input id="pic-dir" placeholder="/path/to/image/directory" spellcheck="false">
+        <input id="pic-interval" type="number" value="5" min="1" max="300" style="width:60px;flex:none;text-align:center" title="Seconds between images">
+        <button class="small-btn" onclick="picturesStart()">Start</button>
+        <button class="small-btn danger" onclick="runCmd('stop')">Stop</button>
+      </div>
+      <div class="sub-status" id="pic-status"></div>
+    </div>
+  </div>
+
+  <!-- Diagnostics -->
+  <div class="section">
+    <div class="section-header collapsed" onclick="toggleSection(this)">
+      <h2><span class="chevron">&#9660;</span> Diagnostics</h2>
+    </div>
+    <div class="section-body" style="display:none">
+      <div style="margin-bottom:0.5rem;display:flex;gap:0.5rem">
+        <button class="small-btn" onclick="refreshDiag()">Refresh</button>
+      </div>
+      <div id="diag-info" class="diag-pre">Click Refresh to load USB status.</div>
+    </div>
+  </div>
+
+  <!-- Server Log -->
+  <div class="section">
+    <div class="section-header collapsed" onclick="toggleSection(this)">
+      <h2><span class="chevron">&#9660;</span> Server Log</h2>
+    </div>
+    <div class="section-body" style="display:none">
+      <div style="margin-bottom:0.5rem;display:flex;gap:0.5rem">
+        <button class="small-btn" onclick="refreshLog()">Refresh</button>
+        <button class="small-btn danger" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-box" id="server-log" style="max-height:220px">
+        <div style="color:var(--muted)">No log entries yet.</div>
+      </div>
     </div>
   </div>
 
 </div>
 
 <script>
+/* ── Helpers ────────────────────────────────────────────────────────────────── */
 async function api(path, body) {
   const resp = await fetch(path, {
-    method:  'POST',
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
+    body: JSON.stringify(body),
   });
   return resp.json();
 }
 
-function setStatus(id, msg, ok) {
-  const el = document.getElementById(id);
-  el.textContent = msg;
-  el.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
-}
-
 function escHtml(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
-// ── Send Text ─────────────────────────────────────────────────────────────────
-async function sendText() {
-  const text = document.getElementById('text-input').value;
-  if (!text.trim()) return;
-  setStatus('text-status', 'Sending...');
-  try {
-    await api('/api/display', { text });
-    setStatus('text-status', 'Sent', true);
-  } catch (e) { setStatus('text-status', 'Error: ' + e.message, false); }
+function setStatus(msg, cls) {
+  const el = document.getElementById('status-line');
+  el.textContent = msg;
+  el.className = 'status-line' + (cls ? ' ' + cls : '');
 }
 
-// ── Quick Actions ─────────────────────────────────────────────────────────────
-async function runAction(action) {
-  setStatus('action-status', 'Running ' + action + '...');
+function toggleSection(header) {
+  header.classList.toggle('collapsed');
+  const body = header.nextElementSibling;
+  body.style.display = header.classList.contains('collapsed') ? 'none' : '';
+}
+
+/* ── Command input ─────────────────────────────────────────────────────────── */
+const cmdInput = document.getElementById('cmd-input');
+const COMMANDS = {
+  'hello':        { action: 'hello' },
+  'dictionary':   { action: 'dictionary' },
+  'dict':         { action: 'dictionary' },
+  'stop':         { action: 'stop' },
+  'restart':      { action: 'restart' },
+  'reset':        { action: 'restart' },
+  'reinit':       { action: 'force_reinit' },
+  'force_reinit': { action: 'force_reinit' },
+  'usb_reset':    { action: 'sysfs_reset' },
+  'sysfs_reset':  { action: 'sysfs_reset' },
+};
+
+cmdInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const raw = cmdInput.value.trim();
+  if (!raw) return;
+  cmdInput.value = '';
+  handleCommand(raw);
+});
+
+async function handleCommand(raw) {
+  const parts = raw.split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const rest = parts.slice(1).join(' ');
+
+  // Known action
+  if (COMMANDS[cmd]) {
+    return runCmd(COMMANDS[cmd].action);
+  }
+
+  // Ollama
+  if (cmd === 'ollama' || cmd === 'llama') {
+    return ollamaStart();
+  }
+
+  // Pictures
+  if (cmd === 'pictures' || cmd === 'pics' || cmd === 'slideshow' || cmd === 'photos') {
+    if (!rest) {
+      setStatus('Usage: pictures /path/to/directory [interval_seconds]', 'err');
+      return;
+    }
+    const dirParts = rest.split(/\s+/);
+    const dir = dirParts[0];
+    const interval = dirParts[1] ? parseInt(dirParts[1], 10) : undefined;
+    document.getElementById('pic-dir').value = dir;
+    if (interval) document.getElementById('pic-interval').value = interval;
+    return picturesStart();
+  }
+
+  // Anything else: send as text to display
+  setStatus('Sending text: ' + raw);
   try {
-    const r  = await api('/api/action', { action });
+    await api('/api/display', { text: raw });
+    setStatus('Sent: ' + raw, 'ok');
+  } catch (e) {
+    setStatus('Error: ' + e.message, 'err');
+  }
+}
+
+async function runCmd(action) {
+  setStatus('Running: ' + action + '...');
+  try {
+    const r = await api('/api/action', { action });
     const ok = r.usb_ok !== undefined ? r.usb_ok : true;
-    setStatus('action-status', r.status || 'ok', ok);
+    setStatus(r.status || action + ' done', ok ? 'ok' : 'err');
     if (['restart', 'force_reinit', 'sysfs_reset'].includes(action)) refreshDiag();
-  } catch (e) { setStatus('action-status', 'Error: ' + e.message, false); }
+  } catch (e) {
+    setStatus('Error: ' + e.message, 'err');
+  }
 }
 
-async function doSysfsReset() {
-  setStatus('action-status', 'Sending USBDEVFS_RESET ioctl...');
-  try {
-    const r = await api('/api/action', { action: 'sysfs_reset' });
-    setStatus('action-status', r.status || (r.ok ? 'ok' : 'failed'), r.ok || r.driver_ok);
-    refreshDiag();
-    refreshLog();
-  } catch (e) { setStatus('action-status', 'Error: ' + e.message, false); }
-}
-
-// ── Diagnostics ───────────────────────────────────────────────────────────────
+/* ── Diagnostics ───────────────────────────────────────────────────────────── */
 async function refreshDiag() {
   try {
     const d = await fetch('/api/diag').then(r => r.json());
-    const lines = [
-      `pyusb_found:        ${d.pyusb_found}`,
-      `sysfs_path:         ${d.sysfs_path || '(not found)'}`,
-      `dev_path:           ${d.dev_path   || '(none)'}`,
-      `dev_writable:       ${d.dev_writable}`,
-      `lsusb:              ${d.lsusb      || '—'}`,
-      `kernel_driver:      ${d.kernel_driver_active}`,
-      `driver_type:        ${d.driver_type}`,
-      `driver_initialized: ${d.driver_initialized}`,
-      `driver_has_device:  ${d.driver_has_device}`,
-      `bg_thread_alive:    ${d.bg_thread_alive}`,
-      d.errors && d.errors.length ? `errors: ${d.errors.join('; ')}` : null,
-    ].filter(Boolean).join('\n');
-    document.getElementById('diag-info').textContent = lines;
+    const el = document.getElementById('diag-info');
+    const rows = [
+      ['pyusb_found', d.pyusb_found],
+      ['sysfs_path', d.sysfs_path || '(not found)'],
+      ['dev_path', d.dev_path || '(none)'],
+      ['dev_writable', d.dev_writable],
+      ['lsusb', d.lsusb || '\u2014'],
+      ['kernel_driver', d.kernel_driver_active],
+      ['driver_type', d.driver_type],
+      ['driver_initialized', d.driver_initialized],
+      ['driver_has_device', d.driver_has_device],
+      ['bg_thread_alive', d.bg_thread_alive],
+    ];
+    if (d.errors && d.errors.length) rows.push(['errors', d.errors.join('; ')]);
+    el.innerHTML = rows.map(([k, v]) => {
+      const vc = v === true ? 'true' : v === false ? 'false' : '';
+      return '<div class="diag-row"><span class="diag-key">' + escHtml(k) +
+        '</span><span class="diag-val ' + vc + '">' + escHtml(String(v)) + '</span></div>';
+    }).join('');
+    const dot = document.getElementById('usb-dot');
+    dot.className = 'dot' + (d.driver_has_device ? ' on' : '');
   } catch (e) {
     document.getElementById('diag-info').textContent = 'Error: ' + e.message;
   }
@@ -259,11 +447,11 @@ async function refreshDiag() {
 let _logCleared = false;
 async function refreshLog() {
   try {
-    const d   = await fetch('/api/log').then(r => r.json());
+    const d = await fetch('/api/log').then(r => r.json());
     const box = document.getElementById('server-log');
     if (d.log && d.log.length) {
       box.innerHTML = d.log.slice().reverse()
-        .map(l => `<div class="log-entry">${escHtml(l)}</div>`).join('');
+        .map(l => '<div class="log-entry">' + escHtml(l) + '</div>').join('');
     } else {
       box.innerHTML = '<div style="color:var(--muted)">No log entries yet.</div>';
     }
@@ -272,92 +460,86 @@ async function refreshLog() {
 
 function clearLog() {
   _logCleared = true;
-  document.getElementById('server-log').innerHTML = '<div style="color:var(--muted)">(cleared)</div>';
+  document.getElementById('server-log').innerHTML =
+    '<div style="color:var(--muted)">(cleared)</div>';
 }
 
-setInterval(() => { refreshDiag(); if (!_logCleared) refreshLog(); }, 5000);
-refreshDiag();
-refreshLog();
-
-// ── Ollama Monitor ────────────────────────────────────────────────────────────
+/* ── Ollama ────────────────────────────────────────────────────────────────── */
 async function ollamaStart() {
   const target = document.getElementById('ollama-target').value.trim();
-  setStatus('ollama-status', 'Starting...');
+  setStatus('Starting Ollama monitor...');
   try {
     await api('/api/ollama/start', { target });
-    setStatus('ollama-status', 'Monitor active — proxy: /ollama/', true);
-    document.getElementById('ollama-dot').className = 'indicator on';
-  } catch (e) { setStatus('ollama-status', 'Error: ' + e.message, false); }
+    setStatus('Ollama monitor active \u2014 proxy: /ollama/', 'ok');
+    document.getElementById('ollama-dot').className = 'dot on';
+    document.getElementById('ollama-start-btn').classList.add('active');
+  } catch (e) {
+    setStatus('Error: ' + e.message, 'err');
+  }
 }
 
 async function ollamaStop() {
   try {
     await api('/api/ollama/stop', {});
-    setStatus('ollama-status', 'Stopped', false);
-    document.getElementById('ollama-dot').className = 'indicator off';
+    setStatus('Ollama monitor stopped');
+    document.getElementById('ollama-dot').className = 'dot';
+    document.getElementById('ollama-start-btn').classList.remove('active');
   } catch { /* ignore */ }
 }
 
-async function pollLog() {
+async function pollOllamaLog() {
   try {
     const data = await fetch('/api/ollama/log').then(r => r.json());
-    const box  = document.getElementById('ollama-log');
+    const box = document.getElementById('ollama-log');
     if (data.requests && data.requests.length) {
       box.innerHTML = data.requests.slice().reverse().map(req => {
-        const sc    = req.status && req.status < 300 ? 'ok' : 'err';
-        const model = req.model ? `<span class="log-model">${escHtml(req.model)}</span> ` : '';
-        return `<div class="log-entry">` +
-          `<span class="log-method ${escHtml(req.method)}">${escHtml(req.method)}</span> ` +
-          `${escHtml(req.path)} ` + model +
-          `<span class="log-ip">${escHtml(req.ip)}</span> ` +
-          `<span class="log-status ${sc}">${req.status || '...'}</span> ` +
-          (req.duration_ms ? `${req.duration_ms}ms ` : '') +
-          `<span class="log-time">${escHtml(req.time || '')}</span>` +
-          `</div>`;
+        const sc = req.status && req.status < 300 ? 'color:var(--green)' : 'color:var(--red)';
+        const mc = req.method === 'POST' ? 'color:var(--green)' : 'color:var(--cyan)';
+        const model = req.model ? ' <span style="color:var(--purple)">' + escHtml(req.model) + '</span>' : '';
+        return '<div class="log-entry">' +
+          '<span style="' + mc + ';font-weight:700">' + escHtml(req.method) + '</span> ' +
+          escHtml(req.path) + model + ' ' +
+          '<span style="color:var(--orange)">' + escHtml(req.ip) + '</span> ' +
+          '<span style="' + sc + ';font-weight:600">' + (req.status || '...') + '</span> ' +
+          (req.duration_ms ? req.duration_ms + 'ms ' : '') +
+          '<span style="color:var(--muted)">' + escHtml(req.time || '') + '</span>' +
+          '</div>';
       }).join('');
     }
-    if (data.active) document.getElementById('ollama-dot').className = 'indicator on';
+    if (data.active) {
+      document.getElementById('ollama-dot').className = 'dot on';
+    }
   } catch { /* ignore */ }
 }
-setInterval(pollLog, 2000);
-pollLog();
 
-// ── Test Ollama ───────────────────────────────────────────────────────────────
-async function testOllamaGenerate() {
-  const model  = document.getElementById('test-model').value.trim();
-  const prompt = document.getElementById('test-prompt').value.trim();
-  if (!model)  { setStatus('test-status', 'Enter a model name', false); return; }
-  if (!prompt) { setStatus('test-status', 'Enter a prompt',     false); return; }
-  setStatus('test-status', 'Sending generate request...');
-  const pre = document.getElementById('test-response');
-  pre.style.display = 'none'; pre.textContent = '';
+/* ── Pictures ──────────────────────────────────────────────────────────────── */
+async function picturesStart() {
+  const dir = document.getElementById('pic-dir').value.trim();
+  const interval = parseInt(document.getElementById('pic-interval').value, 10) || 5;
+  if (!dir) {
+    setStatus('Enter a directory path for pictures', 'err');
+    return;
+  }
+  setStatus('Starting slideshow: ' + dir + ' (every ' + interval + 's)');
   try {
-    const resp = await fetch('/ollama/api/generate', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ model, prompt, stream: false }),
-    });
-    const text = await resp.text();
-    let display = text;
-    try { display = JSON.stringify(JSON.parse(text), null, 2); } catch { /* keep raw */ }
-    setStatus('test-status', `Response: HTTP ${resp.status}`, resp.ok);
-    pre.textContent = display; pre.style.display = 'block';
-  } catch (e) { setStatus('test-status', 'Error: ' + e.message, false); }
+    const r = await api('/api/action', { action: 'pictures', dir: dir, interval: interval });
+    setStatus(r.status || 'Slideshow started', r.count > 0 ? 'ok' : 'err');
+    document.getElementById('pic-status').textContent = r.status || '';
+  } catch (e) {
+    setStatus('Error: ' + e.message, 'err');
+  }
 }
 
-async function testOllamaTags() {
-  setStatus('test-status', 'Fetching model list...');
-  const pre = document.getElementById('test-response');
-  pre.style.display = 'none'; pre.textContent = '';
-  try {
-    const resp = await fetch('/ollama/api/tags');
-    const text = await resp.text();
-    let display = text;
-    try { display = JSON.stringify(JSON.parse(text), null, 2); } catch { /* keep raw */ }
-    setStatus('test-status', `Response: HTTP ${resp.status}`, resp.ok);
-    pre.textContent = display; pre.style.display = 'block';
-  } catch (e) { setStatus('test-status', 'Error: ' + e.message, false); }
-}
+/* ── Polling ───────────────────────────────────────────────────────────────── */
+setInterval(() => {
+  refreshDiag();
+  if (!_logCleared) refreshLog();
+  pollOllamaLog();
+}, 5000);
+
+refreshDiag();
+refreshLog();
+pollOllamaLog();
 </script>
 </body>
 </html>
