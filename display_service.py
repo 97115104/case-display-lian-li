@@ -203,6 +203,11 @@ def _handle_action(args: dict):  # noqa: C901
         _ws._slog("[restart] starting hard reset...")
         drv = _ws._restart_driver()
         ok = hasattr(drv, "device") and drv.device is not None
+        if ok:
+            try:
+                show_text("LANCOOL 207\nReady", driver=drv)
+            except Exception as e:
+                _ws._slog(f"[restart] post-reset display write failed: {e}")
         msg = "Display reset and ready" if ok else "Reset attempted — no USB device found"
         _ws._slog(f"[restart] done: ok={ok}")
         return {"status": msg, "usb_ok": ok}
@@ -211,6 +216,11 @@ def _handle_action(args: dict):  # noqa: C901
         _ws._slog("[force_reinit] starting...")
         drv = _ws._get_driver()
         ok = drv.force_reinit() if hasattr(drv, "force_reinit") else False
+        if ok:
+            try:
+                show_text("LANCOOL 207\nReady", driver=drv)
+            except Exception:
+                pass
         _ws._slog(f"[force_reinit] done: ok={ok}")
         return {
             "status": "Force reinit OK" if ok else "Force reinit failed",
@@ -240,6 +250,11 @@ def _handle_action(args: dict):  # noqa: C901
             ok = hasattr(drv, "device") and drv.device is not None
             _ws._slog(f"[sysfs_reset] driver ok={ok}")
             result["driver_ok"] = ok
+            if ok:
+                try:
+                    show_text("LANCOOL 207\nReady", driver=drv)
+                except Exception:
+                    pass
             result["status"] = (
                 "USB reset OK, driver ready" if ok else "USB reset OK but driver not found"
             )

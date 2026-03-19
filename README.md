@@ -122,3 +122,7 @@ this automatically.
 ## License
 
 MIT
+
+---
+
+[built with ai](https://attest.ink/verify/?id=2026-03-19-rlbxos) · Created by [97 115 104](https://github.com/sponsors/97115104) · [Other projects](https://97115104.com/projects/)

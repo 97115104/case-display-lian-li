@@ -185,6 +185,66 @@
   ::-webkit-scrollbar-thumb { background: #333; }
   ::-webkit-scrollbar-thumb:hover { background: #555; }
 
+  /* ── Footer ─────────────────────────────────────────────────── */
+  .license-section {
+    border-top: 1px solid #333;
+    padding: 1.5rem 2rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .footer-left {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .license-badge {
+    position: relative;
+    cursor: default;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .license-badge .license-tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    padding: 1rem;
+    font-size: 0.7rem;
+    line-height: 1.5;
+    width: 340px;
+    text-align: left;
+    z-index: 100;
+    color: var(--muted);
+  }
+  .license-badge:hover .license-tooltip { display: block; }
+  .attest-badge {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: color 0.2s;
+  }
+  .attest-badge:hover { color: var(--text); }
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .footer-right a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: color 0.2s;
+  }
+  .footer-right a:hover { color: var(--text); }
+
   /* ── Responsive ─────────────────────────────────────────────── */
   @media (max-width: 600px) {
     .cmd-grid { grid-template-columns: 1fr 1fr; }
@@ -310,6 +370,36 @@
   </div>
 
 </div>
+
+<footer class="license-section">
+  <div class="footer-left">
+    <div class="license-badge">
+      MIT License
+      <div class="license-tooltip">
+        MIT License<br><br>
+        Copyright (c) 2026 Austin Harshberger<br><br>
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the &quot;Software&quot;), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:<br><br>
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+      </div>
+    </div>
+    <a href="https://attest.ink/verify/?id=2026-03-19-rlbxos" class="attest-badge" target="_blank" rel="noopener noreferrer">
+      built with ai
+    </a>
+  </div>
+  <div class="footer-right">
+    <a href="https://github.com/97115104/case-display-lian-li" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <a href="https://github.com/sponsors/97115104" target="_blank" rel="noopener noreferrer">Sponsors <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-1px;"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg></a>
+    <a href="https://97115104.com/projects/" target="_blank" rel="noopener noreferrer">Other projects</a>
+  </div>
+</footer>
+  </div>
+</footer>
 
 <script>
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
